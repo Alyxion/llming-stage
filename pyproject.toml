@@ -1,0 +1,63 @@
+[tool.poetry]
+name = "llming-stage"
+version = "0.1.0"
+description = "Shared frontend foundation and SPA app shell for the llming ecosystem — vendor JS, fonts, icons, and a lazy-loading client-side router"
+authors = ["Michael Ikemann"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/Alyxion/llming-stage"
+homepage = "https://github.com/Alyxion/llming-stage"
+keywords = ["spa", "frontend", "assets", "vue", "quasar", "starlette", "lazy-loading"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Libraries",
+    "Programming Language :: Python :: 3.14",
+    "License :: OSI Approved :: MIT License",
+]
+packages = [{include = "llming_stage"}]
+include = [
+    {path = "llming_stage/assets/*.zip", format = ["sdist", "wheel"]},
+    {path = "llming_stage/vendor/*", format = ["sdist", "wheel"]},
+    {path = "llming_stage/fonts/*", format = ["sdist", "wheel"]},
+    {path = "llming_stage/lang/*", format = ["sdist", "wheel"]},
+    {path = "llming_stage/static/*", format = ["sdist", "wheel"]},
+    {path = "THIRD_PARTY.md", format = ["sdist", "wheel"]},
+]
+
+[tool.poetry.urls]
+"Author" = "https://github.com/Alyxion"
+
+[tool.poetry.dependencies]
+python = ">=3.14,<4"
+starlette = ">=0.27"
+# Develop against the sibling checkout; `poetry build` resolves this to
+# the published PyPI version via the package's own version metadata.
+llming-com = {path = "../llming-com", develop = true}
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+pytest-asyncio = ">=0.23"
+pytest-playwright = ">=0.5"
+pytest-timeout = ">=2.2"
+httpx = ">=0.27"
+websockets = ">=12"
+mkdocs = ">=1.6"
+mkdocs-material = ">=9.5"
+fastapi = ">=0.100"
+uvicorn = {extras = ["standard"], version = ">=0.27"}
+python-multipart = ">=0.0.9"
+
+[tool.poetry.scripts]
+content-guard = "scripts.content_guard:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "sample(name): sample directory to launch as a server subprocess",
+]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
