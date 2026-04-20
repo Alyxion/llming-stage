@@ -227,12 +227,40 @@ def bootstrap(
     return app, registry, auth
 
 
-def run(app: FastAPI, port: int | None = None) -> None:
-    """Shortcut: ``if __name__ == '__main__': run(app)``.
+def run(
+    app: FastAPI,
+    *,
+    port: int | None = None,
+    module: str = "main",
+    sample_dir: Path | None = None,
+) -> None:
+    """Run the sample under uvicorn with file-watch hot reload.
 
-    Port precedence: explicit argument → ``PORT`` env var → 8080.
+    ``module`` is the Python module name (inside *sample_dir*) that
+    exposes ``app``. Caller passes ``__file__`` via *sample_dir* so
+    we know which directory uvicorn should watch.
+
+    Reload can be disabled via ``STAGE_RELOAD=0`` — tests do this so
+    subprocess teardown is deterministic.
     """
     import uvicorn
 
-    resolved = port if port is not None else int(os.environ.get("PORT", "8080"))
-    uvicorn.run(app, host="127.0.0.1", port=resolved, log_level="info")
+    resolved_port = port if port is not None else int(os.environ.get("PORT", "8080"))
+    reload = os.environ.get("STAGE_RELOAD", "1") != "0"
+
+    if not reload:
+        uvicorn.run(app, host="127.0.0.1", port=resolved_port, log_level="info")
+        return
+
+    # Reload needs an import string + an app_dir so uvicorn can re-import.
+    if sample_dir is None:
+        raise ValueError("sample_dir is required for reload mode")
+    uvicorn.run(
+        f"{module}:app",
+        host="127.0.0.1",
+        port=resolved_port,
+        reload=True,
+        reload_dirs=[str(sample_dir)],
+        app_dir=str(sample_dir),
+        log_level="info",
+    )

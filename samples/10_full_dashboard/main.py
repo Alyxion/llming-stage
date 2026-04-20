@@ -173,4 +173,4 @@ async def upload(request: Request, file: UploadFile) -> JSONResponse:
 
 
 if __name__ == "__main__":
-    run(app)
+    run(app, sample_dir=HERE)

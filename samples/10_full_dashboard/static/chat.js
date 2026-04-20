@@ -3,43 +3,64 @@ window.__stageViews.chat = {
   async mount(target) {
     const ws = await window.__ensureAppSocket();
     target.innerHTML = `
-      <div class="q-pa-md" style="max-width:700px;margin:auto">
-        <nav style="margin-bottom:24px">${window.__navLinks('/chat')}</nav>
-        <h1 class="text-h5">Chat</h1>
-        <div id="log" style="min-height:300px;padding:12px;border:1px solid #ddd;border-radius:4px;background:#fafafa"></div>
-        <div style="display:flex;gap:8px;margin-top:16px">
-          <input id="q" placeholder="Ask anything" style="flex:1;padding:6px;border:1px solid #ccc;border-radius:4px">
-          <button id="send" class="b">Send</button>
+      ${window.__capNavBar('/chat')}
+      <div class="column" style="flex:1;padding:16px 20px">
+        <div style="max-width:780px;margin:0 auto;flex:1;display:flex;flex-direction:column;gap:14px;width:100%">
+          <div>
+            <div class="text-h5">Chat</div>
+            <div class="text-caption text-grey">Streamed replies over the same session socket.</div>
+          </div>
+          <div id="log" class="q-card q-pa-md" style="flex:1;overflow:auto;min-height:300px"></div>
+          <div class="q-card q-pa-sm row items-center q-gutter-sm no-wrap">
+            <input id="q" placeholder="Ask anything"
+                   style="flex:1;padding:10px 12px;border:0;background:transparent;outline:none;font-size:15px">
+            <button id="send" class="q-btn bg-primary text-white"
+                    style="padding:8px 18px;border:0;border-radius:6px;cursor:pointer">
+              Send
+            </button>
+          </div>
         </div>
       </div>
       <style>
-        .b{padding:6px 12px;background:#1976d2;color:#fff;border:0;border-radius:4px;cursor:pointer}
-        .u{color:#444}.a{color:#1976d2}.msg{margin:4px 0}
+        .msg { margin: 10px 0; display: flex; gap: 10px; align-items: flex-start; }
+        .msg .avatar { flex: 0 0 32px; width: 32px; height: 32px; border-radius: 50%;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 16px; font-weight: 600; color: #fff; }
+        .msg.user .avatar { background: #64748b; }
+        .msg.assistant .avatar { background: linear-gradient(135deg,#6366f1,#a855f7); }
+        .msg .body { flex: 1; padding: 8px 12px; border-radius: 8px;
+          background: rgba(128,128,128,0.08); line-height: 1.55; }
+        .msg.user .body { background: rgba(99,102,241,0.08); }
       </style>`;
 
-    const log = document.getElementById('log');
-    const q = document.getElementById('q');
+    const log = target.querySelector('#log');
+    const q = target.querySelector('#q');
     const pending = new Map();
 
     const addMsg = (role, text = '') => {
-      const d = document.createElement('div');
-      d.className = `msg ${role === 'user' ? 'u' : 'a'}`;
-      d.textContent = `${role}: ${text}`;
-      log.appendChild(d);
-      return d;
+      const row = document.createElement('div');
+      row.className = `msg ${role}`;
+      const av = document.createElement('div');
+      av.className = 'avatar';
+      av.textContent = role === 'user' ? 'U' : 'A';
+      const body = document.createElement('div');
+      body.className = 'body';
+      body.textContent = text;
+      row.appendChild(av);
+      row.appendChild(body);
+      log.appendChild(row);
+      log.scrollTop = log.scrollHeight;
+      return body;
     };
 
     const listener = (m) => {
       if (m.type === 'chat.history') {
         for (const msg of m.messages) addMsg(msg.role, msg.text);
-      } else if (m.type === 'chat.start') {
-        pending.set(m.id, addMsg('assistant'));
-      } else if (m.type === 'chat.delta') {
-        const d = pending.get(m.id);
-        if (d) d.textContent += m.delta;
-      } else if (m.type === 'chat.done') {
-        pending.delete(m.id);
-      }
+      } else if (m.type === 'chat.start')      pending.set(m.id, addMsg('assistant'));
+      else if (m.type === 'chat.delta') {
+        const b = pending.get(m.id);
+        if (b) { b.textContent += m.delta; log.scrollTop = log.scrollHeight; }
+      } else if (m.type === 'chat.done') pending.delete(m.id);
     };
     window.__appListeners.push(listener);
     ws.send({type: 'chat.history'});
@@ -51,7 +72,7 @@ window.__stageViews.chat = {
       q.value = '';
       ws.send({type: 'chat.ask', text});
     };
-    document.getElementById('send').addEventListener('click', send);
+    target.querySelector('#send').addEventListener('click', send);
     q.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
 
     return {

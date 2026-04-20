@@ -1,18 +1,11 @@
-# 08 — Live Plotly dashboard
+# 08 — Analytics dashboard
 
-A sine wave with noise, sampled server-side at 2 Hz, streamed over
-the WebSocket, drawn by a lazy-loaded Plotly.
+Eight ECharts chart types — line, bar, pie, radar, two gauges,
+heatmap, scatter, candlestick — on a single dashboard with KPI
+cards, a filter bar (regions, date range, products, compare YoY,
+search), a settings dialog, and a live CPU / memory timer.
 
-## What to notice
-
-- Plotly (~1 MB) is loaded only when this view mounts.
-- The sampling coroutine lives on the server — the client has no
-  timer, it only consumes `metric.sample` pushes.
-- Starting/stopping is another pair of plain WS commands. Closing
-  the tab cancels the asyncio task because `controller.send()`
-  returns False once the socket is gone.
-- `unmount()` purges the Plotly element so navigating away doesn't
-  leak the canvas.
+Re-renders itself when the gallery toggles dark / light mode.
 
 ## Run
 

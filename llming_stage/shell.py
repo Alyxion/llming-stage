@@ -104,6 +104,14 @@ def render_shell(config: ShellConfig) -> str:
 <link rel="stylesheet" href="{prefix}/fonts/fonts.css">
 <link rel="stylesheet" href="{prefix}/vendor/quasar.prod.css">
 <script>window.__stageBase = {_js_str(prefix)};</script>
+<script type="importmap">
+{{
+  "imports": {{
+    "three": "{prefix}/vendor/three.module.min.js",
+    "three/addons/": "{prefix}/vendor/"
+  }}
+}}
+</script>
 {config.extra_head}
 </head>
 <body>

@@ -15,11 +15,13 @@
   //   - { module: 'path/to/file.mjs' }               ES module
   //   - { bundle: [entry, entry, ...] }              multiple assets, loaded in order
   const registry = {
-    katex:     { js: 'vendor/katex.min.js',       css: 'vendor/katex.min.css' },
-    mermaid:   { module: 'vendor/mermaid.esm.min.mjs' },
-    dompurify: { js: 'vendor/dompurify.min.js' },
-    three:     { module: 'vendor/three.module.min.js' },
-    plotly:    { js: 'vendor/plotly-basic.min.js' },
+    katex:        { js: 'vendor/katex.min.js',       css: 'vendor/katex.min.css' },
+    mermaid:      { module: 'vendor/mermaid.esm.min.mjs' },
+    dompurify:    { js: 'vendor/dompurify.min.js' },
+    three:        { module: 'vendor/three.module.min.js' },
+    'three/controls': { module: 'vendor/three-orbit-controls.module.js' },
+    plotly:       { js: 'vendor/plotly-basic.min.js' },
+    echarts:      { js: 'vendor/echarts.min.js' },
   };
 
   const pending = new Map(); // name -> Promise<void>

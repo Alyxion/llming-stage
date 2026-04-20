@@ -1,9 +1,4 @@
-"""Sample 07 — lazy-loaded Three.js scene.
-
-Demonstrates the loader: ``three.module.min.js`` is *not* in the
-critical path. It loads only when the view calls ``__stage.load('three')``.
-No WebSocket is opened — the sample is purely client-side.
-"""
+"""Sample 07 — lazy Three.js scene."""
 
 from __future__ import annotations
 
@@ -40,7 +35,12 @@ app = build_app()
 
 
 if __name__ == "__main__":
-    import os
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("PORT", "8080")), log_level="info")
+    port = int(os.environ.get("PORT", "8080"))
+    reload = os.environ.get("STAGE_RELOAD", "1") != "0"
+    if reload:
+        uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True,
+                    reload_dirs=[str(HERE)], app_dir=str(HERE))
+    else:
+        uvicorn.run(app, host="127.0.0.1", port=port)

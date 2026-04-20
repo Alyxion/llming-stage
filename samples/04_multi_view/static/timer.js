@@ -2,33 +2,41 @@ window.__stageViews = window.__stageViews || {};
 window.__stageViews.timer = {
   async mount(target) {
     target.innerHTML = `
-      <div class="q-pa-xl text-center" style="max-width:600px;margin:auto">
-        <h1 class="text-h4">Timer</h1>
-        <p style="font-size:64px;margin:24px 0" id="val">—</p>
-        <button id="start" class="t-btn">Start 10s</button>
-        <button id="cancel" class="t-btn" style="margin-left:12px;background:#888">Cancel</button>
-        <p class="q-mt-xl">
-          <a data-stage-link href="/"
-             style="color:#1976d2;text-decoration:underline">← Back home</a>
-        </p>
-      </div>
-      <style>
-        .t-btn { padding:8px 16px; background:#1976d2; color:#fff;
-          border:0; border-radius:4px; cursor:pointer; font-size:16px }
-      </style>`;
+      <div class="column items-center justify-center" style="min-height:100%;gap:24px;padding:32px">
+        <div style="width:100%;max-width:420px" class="q-card q-pa-xl text-center">
+          <div class="text-overline text-grey">server-driven countdown</div>
+          <div id="val" class="q-my-lg" style="font-size:96px;font-weight:700;
+               background:linear-gradient(135deg,#f59e0b,#ef4444);
+               -webkit-background-clip:text;background-clip:text;color:transparent;
+               font-variant-numeric:tabular-nums;line-height:1">—</div>
+          <div class="row q-gutter-sm justify-center">
+            <button id="start" class="q-btn bg-primary text-white"
+                    style="padding:10px 20px;border:0;border-radius:8px;cursor:pointer">
+              Start 10 s
+            </button>
+            <button id="cancel" class="q-btn bg-grey-7 text-white"
+                    style="padding:10px 20px;border:0;border-radius:8px;cursor:pointer">
+              Cancel
+            </button>
+          </div>
+          <div class="q-mt-lg">
+            <a data-stage-link href="/" class="text-primary"
+               style="text-decoration:none">← Back home</a>
+          </div>
+        </div>
+      </div>`;
 
     const ws = await window.__ensureSampleSocket();
-    const val = document.getElementById('val');
-
+    const val = target.querySelector('#val');
     const listener = (m) => {
-      if (m.type === 'timer.tick') val.textContent = m.remaining + 's';
+      if (m.type === 'timer.tick')      val.textContent = m.remaining + 's';
       else if (m.type === 'timer.done') val.textContent = '✓ done';
     };
     window.__sampleListeners.push(listener);
 
-    document.getElementById('start').addEventListener('click',
+    target.querySelector('#start').addEventListener('click',
       () => ws.send({type: 'timer.start', seconds: 10}));
-    document.getElementById('cancel').addEventListener('click',
+    target.querySelector('#cancel').addEventListener('click',
       () => ws.send({type: 'timer.cancel'}));
 
     return {

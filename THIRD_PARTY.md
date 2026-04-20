@@ -12,6 +12,8 @@ No AGPL, GPL, or LGPL resource is ever permitted in this repository.
 | Vue.js | 3.x | MIT | https://github.com/vuejs/core | Reactive UI framework |
 | Quasar Framework | 2.x | MIT | https://github.com/quasarframework/quasar | UI component library |
 | Three.js | 0.184.0 | MIT | https://registry.npmjs.org/three/-/three-0.184.0.tgz (sha1 `5bca0a3851eea5345e4c205567b40dfa49b791b5`) | 3D rendering. Ships as two files — `three.module.min.js` re-exports from the co-located `three.core.min.js`; both are required. |
+| Three.js OrbitControls | 0.184.0 | MIT | `examples/jsm/controls/OrbitControls.js` from the same Three.js tarball | Mouse / touch / wheel camera controls (vendored as `three-orbit-controls.module.js`). |
+| Apache ECharts | 6.0.0 | Apache 2.0 | https://registry.npmjs.org/echarts/-/echarts-6.0.0.tgz (sha1 `2935aa7751c282d1abbbf7d719d397199a15b9e7`) | Chart library — line, bar, pie, gauge, radar, heatmap, scatter, candlestick. |
 | Plotly.js (basic) | 2.x | MIT | https://github.com/plotly/plotly.js | Charts and data visualization |
 | KaTeX | 0.16.x | MIT | https://github.com/KaTeX/KaTeX | LaTeX math rendering |
 | Mermaid | 11.x | MIT | https://github.com/mermaid-js/mermaid | Diagram rendering |

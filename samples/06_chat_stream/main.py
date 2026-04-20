@@ -67,4 +67,4 @@ app, registry, auth = bootstrap(
 
 
 if __name__ == "__main__":
-    run(app)
+    run(app, sample_dir=HERE)

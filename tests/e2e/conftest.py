@@ -69,7 +69,7 @@ def sample_server(request: pytest.FixtureRequest) -> Iterator[str]:
     assert main_py.is_file(), f"{main_py} does not exist"
 
     port = _pick_free_port()
-    env = {**os.environ, "PORT": str(port)}
+    env = {**os.environ, "PORT": str(port), "STAGE_RELOAD": "0"}
     proc = subprocess.Popen(
         [sys.executable, str(main_py)],
         cwd=str(REPO_ROOT),

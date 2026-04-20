@@ -1,18 +1,10 @@
-# 07 — 3D scene (lazy Three.js)
+# 07 — Three.js tornado
 
-Shows how a view pulls in an expensive dependency on demand.
-Three.js (~340 KB) is *not* in the critical path — it only loads
-when this view mounts, via `window.__stage.load('three')`.
+Full-screen particle tornado with custom GLSL shaders, orbit controls,
+and six live-parameter sliders on a glass-morphism control panel.
 
-## What to notice
-
-- `main.py` has no llming-com wiring at all. This sample is pure
-  client-side — falls into the "pure static, no server reactivity"
-  branch of the communication model.
-- `scene.js` calls `__stage.load('three')` to register the library,
-  then `await import(...)` to get the module namespace.
-- `unmount()` stops the animation loop and disposes the renderer so
-  navigating away cleans up properly.
+Six sliders rebuild or live-update the shader uniforms:
+particles, rotation speed, height, radius, glow, and turbulence.
 
 ## Run
 
@@ -21,6 +13,4 @@ poetry run python samples/07_3d_scene/main.py
 open http://localhost:8080
 ```
 
-Open devtools → Network → filter `three` — you'll see the request
-fires only after the view mounts.
-
+Drag to orbit, right-click-drag to pan, scroll to zoom.

@@ -23,8 +23,8 @@ pytestmark = pytest.mark.timeout(60)
 @pytest.mark.sample("01_static")
 def test_01_static(sample_server: str, page: Page) -> None:
     page.goto(sample_server)
-    expect(page.locator("h1")).to_contain_text("Static")
-    expect(page.locator("p")).to_contain_text("No WebSocket")
+    expect(page.locator(".text-h2")).to_contain_text("Static shell")
+    expect(page.locator(".text-subtitle1")).to_contain_text("HTML document")
 
 
 # ---------------------------------------------------------------------------
@@ -33,7 +33,7 @@ def test_01_static(sample_server: str, page: Page) -> None:
 @pytest.mark.sample("02_hello_world")
 def test_02_hello_world(sample_server: str, page: Page) -> None:
     session = open_sample(page, sample_server)
-    expect(page.locator("h1")).to_contain_text("hello_world")
+    expect(page.locator(".text-h4")).to_contain_text("hello_world")
     wait_controller_ready(page, sample_server, session["sessionId"])
 
     # UI-driven FE→BE call.
@@ -79,11 +79,10 @@ def test_03_counter(sample_server: str, page: Page) -> None:
 def test_04_multi_view(sample_server: str, page: Page) -> None:
     session = open_sample(page, sample_server)
     wait_controller_ready(page, sample_server, session["sessionId"])
-    expect(page.locator("h1")).to_contain_text("Home")
+    expect(page.locator(".text-h4")).to_contain_text("Multi-view")
 
-    # Navigate to /timer via the SPA router (data-stage-link handling).
     page.locator("a[href='/timer']").click()
-    expect(page.locator("h1")).to_contain_text("Timer")
+    expect(page.locator(".text-overline")).to_contain_text("countdown")
 
     # Kick a 3s countdown through debug and verify ticks arrive.
     debug_dispatch(page, session["sessionId"], {"type": "timer.start", "seconds": 3})
@@ -134,19 +133,15 @@ def test_06_chat_stream(sample_server: str, page: Page) -> None:
 # ---------------------------------------------------------------------------
 @pytest.mark.sample("07_3d_scene")
 def test_07_3d_scene(sample_server: str, page: Page) -> None:
+    requests: list[str] = []
+    page.on("request", lambda r: requests.append(r.url))
     page.goto(sample_server)
-    expect(page.locator("h1")).to_contain_text("Three.js")
-    # The lazy load imports three.module.min.js, which imports
-    # three.core.min.js; once both resolve, the view inserts a
-    # WebGL canvas into #canvas-holder.
-    expect(page.locator("#canvas-holder canvas")).to_be_visible(timeout=10_000)
-    # And the canvas should have real dimensions (proof the renderer
-    # attached, not just a stray element).
-    size = page.evaluate(
-        "() => { const c = document.querySelector('#canvas-holder canvas');"
-        "  return c && {w: c.width, h: c.height}; }"
-    )
-    assert size and size["w"] > 0 and size["h"] > 0
+    expect(page.locator(".scene-title-line")).to_contain_text("Tornado", timeout=15_000)
+    canvas = page.locator("#scene-canvas")
+    expect(canvas).to_be_visible(timeout=10_000)
+    box = canvas.bounding_box()
+    assert box and box["width"] > 200 and box["height"] > 200, box
+    assert any("three.module.min.js" in u for u in requests), requests[-10:]
 
 
 # ---------------------------------------------------------------------------
@@ -154,18 +149,22 @@ def test_07_3d_scene(sample_server: str, page: Page) -> None:
 # ---------------------------------------------------------------------------
 @pytest.mark.sample("08_plotly_dashboard")
 def test_08_plotly_dashboard(sample_server: str, page: Page) -> None:
-    session = open_sample(page, sample_server)
-    wait_controller_ready(page, sample_server, session["sessionId"])
-    # Chart element should materialise after Plotly lazy-loads.
-    expect(page.locator("#chart")).to_be_visible()
-
-    debug_dispatch(page, session["sessionId"], {"type": "metric.start"})
-    # After ~1s the chart should have at least one sample.
-    page.wait_for_timeout(1500)
-    n = page.evaluate("() => document.querySelectorAll('#chart .trace').length")
-    assert n >= 1
-
-    debug_dispatch(page, session["sessionId"], {"type": "metric.stop"})
+    page.goto(sample_server)
+    expect(page.locator(".dash-title")).to_contain_text(
+        "Analytics Dashboard", timeout=15_000
+    )
+    for cid in ("#chart-line", "#chart-bar", "#chart-pie", "#chart-radar",
+                "#chart-cpu", "#chart-mem", "#chart-heat", "#chart-scatter",
+                "#chart-candle"):
+        expect(page.locator(cid)).to_have_count(1, timeout=10_000)
+    # Wait for ECharts to render a canvas into at least one chart box.
+    page.wait_for_selector("#chart-line canvas", timeout=10_000)
+    # KPI populated with concrete values.
+    kpi = page.locator("#kpi-revenue").inner_text()
+    assert kpi and kpi != "—" and kpi.startswith("$"), kpi
+    # Toggle a product chip and confirm the redraw didn't throw.
+    page.locator(".chip", has_text="Laptops").click()
+    page.wait_for_timeout(200)
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +173,7 @@ def test_08_plotly_dashboard(sample_server: str, page: Page) -> None:
 @pytest.mark.sample("09_markdown_render")
 def test_09_markdown_render(sample_server: str, page: Page) -> None:
     page.goto(sample_server)
-    expect(page.locator("h1").first).to_contain_text("Source")
+    expect(page.locator(".text-h5")).to_contain_text("Math + sanitised HTML")
 
     page.locator("#render-math").click()
     expect(page.locator("#out .katex").first).to_be_visible(timeout=8_000)
@@ -192,22 +191,19 @@ def test_09_markdown_render(sample_server: str, page: Page) -> None:
 def test_10_full_dashboard(sample_server: str, page: Page) -> None:
     session = open_sample(page, sample_server)
     wait_controller_ready(page, sample_server, session["sessionId"])
-    expect(page.locator("h1")).to_contain_text("Capstone")
+    expect(page.locator(".cap-brand-name")).to_contain_text("Capstone")
 
-    # Drive a chat message entirely through debug.
     debug_dispatch(page, session["sessionId"], {"type": "chat.ask", "text": "hi"})
 
-    # Now navigate to /chat and confirm history is visible server-side.
-    page.locator("a[href='/chat']").click()
-    expect(page.locator("h1")).to_contain_text("Chat", timeout=5_000)
+    page.locator(".cap-nav-item[href='/chat']").click()
+    expect(page.locator(".text-h5")).to_contain_text("Chat", timeout=5_000)
     state = debug_state(page, session["sessionId"])
     chat = state["state"].get("chat", [])
     assert any(m["role"] == "user" and m["text"] == "hi" for m in chat)
     assert any(m["role"] == "assistant" for m in chat)
 
-    # Trigger an upload from the uploads view via navigation + real UI.
-    page.locator("a[href='/uploads']").click()
-    expect(page.locator("h1")).to_contain_text("Uploads", timeout=5_000)
+    page.locator(".cap-nav-item[href='/uploads']").click()
+    expect(page.locator(".text-h5")).to_contain_text("Uploads", timeout=5_000)
     page.set_input_files("#file", {
         "name": "note.txt",
         "mimeType": "text/plain",

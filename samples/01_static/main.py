@@ -1,10 +1,6 @@
-"""Sample 01 — static.
+"""Sample 01 — a static shell served as one HTML document."""
 
-The minimum llming-stage server. No llming-com, no session, no
-WebSocket. Every byte that leaves the server is a static file —
-this directory could be rebuilt into a static export and hosted on
-GitHub Pages.
-"""
+from __future__ import annotations
 
 import os
 import time
@@ -16,8 +12,6 @@ from fastapi.staticfiles import StaticFiles
 from llming_stage import ShellConfig, mount_assets, mount_shell
 
 HERE = Path(__file__).resolve().parent
-# Cache-bust per process so successive launches on the same port don't
-# re-use the previous sample's view JS (see samples/_common.py).
 _V = os.environ.get("STAGE_VIEW_VERSION", str(int(time.time() * 1000)))
 
 app = FastAPI()
@@ -33,7 +27,14 @@ mount_shell(
     ),
 )
 
+
 if __name__ == "__main__":
-    import os
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("PORT", "8080")))
+
+    port = int(os.environ.get("PORT", "8080"))
+    reload = os.environ.get("STAGE_RELOAD", "1") != "0"
+    if reload:
+        uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True,
+                    reload_dirs=[str(HERE)], app_dir=str(HERE))
+    else:
+        uvicorn.run(app, host="127.0.0.1", port=port)

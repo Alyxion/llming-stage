@@ -1,10 +1,4 @@
-"""Sample 09 — lazy KaTeX + DOMPurify.
-
-No server reactivity needed — purely static. Demonstrates the
-on-demand vendor load pattern: KaTeX (math rendering) and
-DOMPurify (HTML sanitisation) are not in the critical path. Each
-loads on its first use via ``window.__stage.load()``.
-"""
+"""Sample 09 — lazy KaTeX + DOMPurify."""
 
 from __future__ import annotations
 
@@ -28,7 +22,7 @@ def build_app() -> FastAPI:
     mount_shell(
         app,
         config=ShellConfig(
-            title="Sample 09 — KaTeX + DOMPurify",
+            title="Sample 09 — Math + sanitised HTML",
             routes=[("/", "reader")],
             view_modules={"reader": f"/app-static/reader.js?v={_V}"},
             preload_views=["reader"],
@@ -41,7 +35,12 @@ app = build_app()
 
 
 if __name__ == "__main__":
-    import os
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("PORT", "8080")), log_level="info")
+    port = int(os.environ.get("PORT", "8080"))
+    reload = os.environ.get("STAGE_RELOAD", "1") != "0"
+    if reload:
+        uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True,
+                    reload_dirs=[str(HERE)], app_dir=str(HERE))
+    else:
+        uvicorn.run(app, host="127.0.0.1", port=port)

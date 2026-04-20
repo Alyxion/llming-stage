@@ -46,6 +46,7 @@ def gallery_server() -> Iterator[tuple[str, int]]:
         **os.environ,
         "GALLERY_PORT": str(gallery_port),
         "SAMPLE_PORT": str(sample_port),
+        "STAGE_RELOAD": "0",
     }
     proc = subprocess.Popen(
         [sys.executable, str(REPO_ROOT / "samples" / "gallery.py")],
@@ -95,7 +96,7 @@ def test_gallery_launches_sample_into_iframe(gallery_server, page: Page) -> None
         "02_hello_world", timeout=20_000
     )
     expect(
-        page.frame_locator("[data-test='frame']").locator("h1")
+        page.frame_locator("[data-test='frame']").locator(".text-h4, .text-h5, .text-h3, .text-h2").first
     ).to_contain_text("hello_world", timeout=15_000)
 
 
@@ -108,7 +109,7 @@ def test_gallery_switches_between_samples(gallery_server, page: Page) -> None:
         "02_hello_world", timeout=20_000
     )
     expect(
-        page.frame_locator("[data-test='frame']").locator("h1")
+        page.frame_locator("[data-test='frame']").locator(".text-h4, .text-h5, .text-h3, .text-h2").first
     ).to_contain_text("hello_world", timeout=15_000)
 
     page.locator("[data-sample='03_counter_command']").click()
@@ -116,8 +117,8 @@ def test_gallery_switches_between_samples(gallery_server, page: Page) -> None:
         "03_counter_command", timeout=20_000
     )
     expect(
-        page.frame_locator("[data-test='frame']").locator("h1")
-    ).to_contain_text("Counter", timeout=15_000)
+        page.frame_locator("[data-test='frame']").locator(".text-overline")
+    ).to_contain_text("counter", timeout=15_000)
 
 
 def test_gallery_stop_button(gallery_server, page: Page) -> None:
@@ -170,7 +171,7 @@ def test_sample_inherits_dark_mode(gallery_server, page: Page) -> None:
         "02_hello_world", timeout=20_000
     )
     frame = page.frame_locator("[data-test='frame']")
-    expect(frame.locator("h1")).to_contain_text("hello_world", timeout=15_000)
+    expect(frame.locator(".text-h4").first).to_contain_text("hello_world", timeout=15_000)
     # Sample body must carry body--dark because the gallery defaults to dark.
     expect(frame.locator("body")).to_have_class(
         re.compile(r"\bbody--dark\b"), timeout=5_000

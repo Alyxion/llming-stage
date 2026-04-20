@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -103,10 +104,13 @@ class SampleRunner:
             if not main_py.is_file():
                 raise FileNotFoundError(name)
             env = {**os.environ, "PORT": str(SAMPLE_PORT)}
+            # Give the sample its own process group so reload supervisors
+            # AND their workers can all be signalled together on stop.
             self.proc = subprocess.Popen(
                 [sys.executable, str(main_py)],
                 env=env,
                 cwd=str(REPO),
+                start_new_session=True,
             )
             self.current = name
             for _ in range(150):   # up to 15s
@@ -127,13 +131,13 @@ class SampleRunner:
         if self.proc is None:
             return
         try:
-            self.proc.terminate()
+            _signal_group(self.proc, signal.SIGTERM)
             for _ in range(100):
                 if self.proc.poll() is not None:
                     break
                 await asyncio.sleep(0.1)
             if self.proc.poll() is None:
-                self.proc.kill()
+                _signal_group(self.proc, signal.SIGKILL)
                 self.proc.wait(timeout=5)
         finally:
             self.proc = None
@@ -142,6 +146,20 @@ class SampleRunner:
                 if not _port_open(SAMPLE_PORT):
                     break
                 await asyncio.sleep(0.1)
+
+
+def _signal_group(proc: subprocess.Popen, sig: int) -> None:
+    """Send *sig* to the entire process group of *proc*.
+
+    Reload supervisors spawn worker children; killing only the parent
+    PID leaves the worker orphaned and the port still bound. By
+    starting each sample in its own session (``start_new_session``)
+    we can signal the whole group.
+    """
+    try:
+        os.killpg(os.getpgid(proc.pid), sig)
+    except ProcessLookupError:
+        pass
 
 
 runner = SampleRunner()
@@ -400,4 +418,16 @@ _INDEX_HTML = r"""<!doctype html>
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=GALLERY_PORT, log_level="info")
+    reload = os.environ.get("STAGE_RELOAD", "1") != "0"
+    if reload:
+        uvicorn.run(
+            "gallery:app",
+            host="127.0.0.1",
+            port=GALLERY_PORT,
+            reload=True,
+            reload_dirs=[str(HERE)],
+            app_dir=str(HERE),
+            log_level="info",
+        )
+    else:
+        uvicorn.run(app, host="127.0.0.1", port=GALLERY_PORT, log_level="info")
