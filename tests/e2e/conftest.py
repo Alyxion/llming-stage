@@ -23,6 +23,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SAMPLES = REPO_ROOT / "samples"
+GALLERY_PY = SAMPLES / "gallery.py"
 
 
 def _port_open(host: str, port: int, timeout: float = 0.5) -> bool:
@@ -49,6 +50,43 @@ def _pick_free_port() -> int:
         return s.getsockname()[1]
     finally:
         s.close()
+
+
+@pytest.fixture
+def gallery_server() -> Iterator[tuple[str, int]]:
+    gallery_port = _pick_free_port()
+    sample_port = _pick_free_port()
+    env = {
+        **os.environ,
+        "GALLERY_PORT": str(gallery_port),
+        "SAMPLE_PORT": str(sample_port),
+        "STAGE_RELOAD": "0",
+    }
+    proc = subprocess.Popen(
+        [sys.executable, str(GALLERY_PY)],
+        cwd=str(REPO_ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=env,
+    )
+    try:
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            if _port_open("127.0.0.1", gallery_port):
+                break
+            time.sleep(0.2)
+        else:
+            proc.terminate()
+            out = proc.stdout.read().decode(errors="replace") if proc.stdout else ""
+            raise RuntimeError(f"gallery did not start:\n{out}")
+        yield f"http://127.0.0.1:{gallery_port}", sample_port
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
 
 
 @pytest.fixture

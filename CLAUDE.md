@@ -79,7 +79,7 @@ proceeding.
 
 ## Communication Model — NORMATIVE
 Every interactive feature in an llming-stage app must fit exactly one of three channels.
-The full rationale lives in `docs/communication-model.md`; the summary here is
+The full rationale lives in `docs/content/communication-model.md`; the summary here is
 non-negotiable:
 
 1. **WebSocket is the primary channel.** *All major, reactive communication flows through
@@ -112,7 +112,7 @@ non-negotiable:
    bundle build.
 
 When reviewing or writing code, apply the decision tree from
-`docs/communication-model.md`:
+`docs/content/communication-model.md`:
 
 ```
 reactive / server-push?        → WSRouter handler over the WebSocket
@@ -131,6 +131,59 @@ Anti-patterns that are NOT acceptable, even as stopgaps:
 
 If a proposed change violates any of these rules, stop and flag it rather than applying it.
 
+## Scope — Out of Bounds
+
+`llming-stage` ships **only general-purpose UI primitives**: SPA shell,
+router, vendor libraries needed to render an app in the browser
+(charting, 3D, code editing, terminal emulation, markdown, math,
+diagrams, sanitisation). It does **not** ship document-format libraries.
+
+The following are explicitly out of scope and live in a separate
+**document-handling library** (the `llming-docs` / future doc package):
+
+- Spreadsheet generation / parsing (`xlsx` / SheetJS, `exceljs`, …).
+- Presentation generation (`pptxgenjs`, …).
+- Word-processor formats (`docx`, …).
+- PDF generation / parsing.
+- DOM-to-image / DOM-to-canvas exporters used purely to *produce*
+  document artefacts (e.g. `html2canvas` when used for export).
+
+If a library's primary purpose is producing or consuming a document
+file format, it does **not** belong in `llming_stage/vendor/`. Apps
+that need document workflows must depend on the doc library
+separately. Keep `llming-stage` focused on the UI surface itself.
+
+## No External Network — STRICTLY ENFORCED (EU privacy)
+
+`llming-stage` ships every asset its rendered pages need. The runtime
+**must not** fetch from any external host — no Google Fonts, no
+jsDelivr, no unpkg, no cdnjs, no analytics or tag-manager beacons.
+This is a privacy / GDPR commitment: a user opening an `llming-stage`
+app makes no requests beyond the app's own origin.
+
+Concretely:
+
+- No `<script src="https://…">`, no `<link href="https://…">`, no
+  `@import url('https://…')` in any code we control (shell, samples,
+  docs).
+- No `fetch()`, `import()`, `new Image()`, or `navigator.sendBeacon()`
+  pointing at a third-party host in our JS.
+- All fonts, icons, charting libs, code-editor libs, etc. must be
+  vendored locally — see `THIRD_PARTY.md` for the canonical list.
+- License-attribution URLs as comments inside vendor files are fine
+  (they're text, not network calls). Active runtime fetches are not.
+
+Two tests guard this:
+
+1. `tests/test_no_external_network.py` — static scan of every
+   non-vendor file for known CDN/analytics hosts.
+2. `tests/e2e/test_no_external_network.py` — runs the gallery + a
+   few samples through Chromium and asserts every network request
+   stayed on `127.0.0.1` / `localhost`.
+
+If you need to add a new third-party library, vendor it (npm tarball
++ SHA, recorded in `THIRD_PARTY.md`). Never link to a CDN.
+
 ## License Policy — STRICTLY ENFORCED
 This repository is MIT-licensed. The following rules are non-negotiable:
 
@@ -139,9 +192,16 @@ This repository is MIT-licensed. The following rules are non-negotiable:
   downstream consumers.
 - Only MIT, Apache 2.0, BSD (2/3-clause), ISC, CC0, CC-BY, and SIL OFL are acceptable.
 - Before adding ANY third-party library, asset set, font, or resource:
-  1. Verify its license explicitly.
-  2. Add an entry to `THIRD_PARTY.md` with: name, version, license, source URL, and what it's used for.
-  3. If the license is unclear or dual-licensed with a copyleft option, do NOT add it — ask first.
+  1. Verify its license explicitly. Read the LICENSE file in the
+     upstream tarball — do not trust headers in minified files.
+  2. Prefer **canonical npm registry tarballs** (`registry.npmjs.org`)
+     over CDN-stripped distributions. Verify the SHA the registry
+     advertises matches the downloaded tarball before extracting.
+  3. Add an entry to `THIRD_PARTY.md` with: name, version, license,
+     source URL **including the registry tarball URL and SHA-1**, and
+     what it's used for.
+  4. If the license is unclear or dual-licensed with a copyleft option,
+     do NOT add it — ask first.
 - The `llming_stage/vendor/` directory and all zip archives in `llming_stage/assets/` contain
   third-party code. Every file in these locations MUST be tracked in `THIRD_PARTY.md`.
 
@@ -171,9 +231,9 @@ or any organization-specific identifiers. See the pre-commit guard below for the
 of terms that are blocked from ever being committed.
 
 ## Documentation
-- Documentation lives in `docs/` and uses MkDocs (mkdocs-material).
+- Documentation lives in `docs/content/` and uses MkDocs (mkdocs-material).
 - Every public API, configuration option, and asset group must be documented.
-- Run `mkdocs serve` to preview locally.
+- Run `mkdocs serve -f docs/mkdocs.yml` from the repo root to preview locally.
 
 ## Build & Publish
 - Build tool: Poetry.

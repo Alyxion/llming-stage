@@ -7,72 +7,7 @@ sample in the sidebar, and confirms the iframe loads that sample.
 
 from __future__ import annotations
 
-import os
-import socket
-import subprocess
-import sys
-import time
-from pathlib import Path
-from typing import Iterator
-
-import pytest
 from playwright.sync_api import Page, expect
-
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-
-
-def _port_open(port: int) -> bool:
-    try:
-        with socket.create_connection(("127.0.0.1", port), timeout=0.3):
-            return True
-    except OSError:
-        return False
-
-
-def _free_port() -> int:
-    s = socket.socket()
-    try:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-    finally:
-        s.close()
-
-
-@pytest.fixture
-def gallery_server() -> Iterator[tuple[str, int]]:
-    gallery_port = _free_port()
-    sample_port = _free_port()
-    env = {
-        **os.environ,
-        "GALLERY_PORT": str(gallery_port),
-        "SAMPLE_PORT": str(sample_port),
-        "STAGE_RELOAD": "0",
-    }
-    proc = subprocess.Popen(
-        [sys.executable, str(REPO_ROOT / "samples" / "gallery.py")],
-        cwd=str(REPO_ROOT),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        env=env,
-    )
-    try:
-        deadline = time.time() + 20
-        while time.time() < deadline:
-            if _port_open(gallery_port):
-                break
-            time.sleep(0.2)
-        else:
-            proc.terminate()
-            out = proc.stdout.read().decode(errors="replace") if proc.stdout else ""
-            raise RuntimeError(f"gallery did not start:\n{out}")
-        yield f"http://127.0.0.1:{gallery_port}", sample_port
-    finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=15)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=5)
 
 
 def test_gallery_lists_all_samples(gallery_server, page: Page) -> None:
@@ -83,7 +18,7 @@ def test_gallery_lists_all_samples(gallery_server, page: Page) -> None:
         "() => Array.from(document.querySelectorAll('[data-sample]'))"
         "         .map(e => e.getAttribute('data-sample'))"
     )
-    assert len(names) == 10
+    assert len(names) >= 10
     assert names[0] == "01_static"
     assert "10_full_dashboard" in names
 

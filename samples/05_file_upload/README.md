@@ -1,7 +1,7 @@
 # 05 — File upload with WebSocket progress
 
 The only sample that uses an HTTP endpoint for reactive-adjacent
-work. It adheres to the [communication model](../../docs/communication-model.md)
+work. It adheres to the [communication model](../../docs/content/communication-model.md)
 rules:
 
 - HTTP is used **only** to move the file bytes (narrow scope).

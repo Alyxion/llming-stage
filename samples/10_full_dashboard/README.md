@@ -43,5 +43,5 @@ open http://localhost:8080
 Because every reactive command is a WSRouter handler on the
 shared controller, an AI agent can list and invoke them via the
 llming-com debug API — and watch the live UI react. See the
-[communication model](../../docs/communication-model.md) for the
+[communication model](../../docs/content/communication-model.md) for the
 architectural rules this sample follows.

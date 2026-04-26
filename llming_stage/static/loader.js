@@ -16,16 +16,36 @@
   //   - { bundle: [entry, entry, ...] }              multiple assets, loaded in order
   const registry = {
     katex:        { js: 'vendor/katex.min.js',       css: 'vendor/katex.min.css' },
-    mermaid:      { module: 'vendor/mermaid.esm.min.mjs' },
+    mermaid:      { js: 'vendor/mermaid.min.js' },
+    marked:       { js: 'vendor/marked.umd.js' },
     dompurify:    { js: 'vendor/dompurify.min.js' },
     three:        { module: 'vendor/three.module.min.js' },
     'three/controls': { module: 'vendor/three-orbit-controls.module.js' },
     plotly:       { js: 'vendor/plotly-basic.min.js' },
+    'plotly/full': { js: 'vendor/plotly-full.min.js' },
     echarts:      { js: 'vendor/echarts.min.js' },
+    drawflow:     { js: 'vendor/drawflow.min.js', css: 'vendor/drawflow.min.css' },
+    xterm:        { js: 'vendor/xterm.js',        css: 'vendor/xterm.css' },
+    'xterm/fit':       { js: 'vendor/xterm-addon-fit.js' },
+    'xterm/web-links': { js: 'vendor/xterm-addon-web-links.js' },
+    'xterm/webgl':     { js: 'vendor/xterm-addon-webgl.js' },
+    codemirror: {
+      // CodeMirror needs core+css first, then mode/addons, in order.
+      bundle: [
+        { js: 'vendor/codemirror.js', css: 'vendor/codemirror.css' },
+        { js: 'vendor/codemirror-mode-javascript.js' },
+        { js: 'vendor/codemirror-addon-matchbrackets.js' },
+        { js: 'vendor/codemirror-addon-closebrackets.js' },
+      ],
+    },
   };
 
-  const pending = new Map(); // name -> Promise<void>
-  const loaded = new Set();
+  // Cache holds the load Promise per name — the SAME instance is
+  // returned on every subsequent call once the lib is loaded, so
+  // `await __stage.load('plotly')` before every use is effectively
+  // free after the first time (single Map lookup, no allocation).
+  const cache = new Map();   // name -> Promise<void>
+  const loaded = new Set();  // public introspection: which names are ready
 
   function resolveUrl(rel) {
     // Absolute URLs and paths rooted at '/' are passed through untouched.
@@ -75,22 +95,30 @@
     }
   }
 
-  async function load(name) {
-    if (loaded.has(name)) return;
-    if (pending.has(name)) return pending.get(name);
+  function load(name) {
+    // Fast path: single Map lookup. No async wrapper, no new Promise.
+    // The cached Promise is reused for every call after the first —
+    // both while still in flight (deduping concurrent loads) and
+    // forever after it resolves (turning load() into a near-free
+    // idempotent guard you can put in front of every use).
+    const cached = cache.get(name);
+    if (cached) return cached;
+
     const entry = registry[name];
     if (!entry) {
-      throw new Error('llming-stage: unknown component "' + name + '"');
+      return Promise.reject(
+        new Error('llming-stage: unknown component "' + name + '"'));
     }
-    const p = loadEntry(entry).then(() => {
-      loaded.add(name);
-      pending.delete(name);
-    }).catch((err) => {
-      pending.delete(name);
-      throw err;
-    });
-    pending.set(name, p);
+    const p = loadEntry(entry).then(
+      () => { loaded.add(name); },
+      (err) => { cache.delete(name); throw err; },
+    );
+    cache.set(name, p);
     return p;
+  }
+
+  function isLoaded(name) {
+    return loaded.has(name);
   }
 
   function register(name, entry) {
@@ -100,6 +128,7 @@
   window.__stage = Object.freeze({
     base,
     load,
+    isLoaded,
     register,
     loaded,
     registry,

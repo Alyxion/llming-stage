@@ -46,6 +46,30 @@ def test_phosphor_icon_served_from_zip(client: TestClient) -> None:
     assert r.text.lstrip().startswith("<svg")
 
 
+def test_tabler_icon_served_from_zip(client: TestClient) -> None:
+    r = client.get("/_stage/tabler/outline/home.svg")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("image/svg+xml")
+    assert r.text.lstrip().startswith("<svg")
+
+
+def test_katex_font_served_with_woff2_mime(client: TestClient) -> None:
+    r = client.get("/_stage/fonts/katex/KaTeX_Main-Regular.woff2")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "font/woff2"
+    # Real woff2 file, not a stub.
+    assert int(r.headers["content-length"]) > 5000
+
+
+def test_katex_css_uses_relative_path_to_unified_fonts(client: TestClient) -> None:
+    r = client.get("/_stage/vendor/katex.min.css")
+    assert r.status_code == 200
+    # CSS at /_stage/vendor/katex.min.css references /_stage/fonts/katex/...
+    # via a relative `url(../fonts/katex/...)`.
+    assert "url(../fonts/katex/" in r.text
+    assert "url(fonts/" not in r.text
+
+
 def test_llming_com_client_served(client: TestClient) -> None:
     r = client.get("/_stage/llming-com/llming-ws.js")
     assert r.status_code == 200

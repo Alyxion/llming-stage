@@ -5,7 +5,7 @@ Ten progressively richer sample apps that show how to build with
 (the Python WebSocket session framework) by the book. Every sample
 opens **one WebSocket per user** and routes reactive traffic through
 `WSRouter` handlers mounted on the session controller — the
-[communication model](../docs/communication-model.md) rules are
+[communication model](../docs/content/communication-model.md) rules are
 followed throughout.
 
 Run any sample with Poetry from the repo root:
@@ -47,6 +47,7 @@ Env knobs for the gallery:
 | 08 | [plotly_dashboard](08_plotly_dashboard/) | Lazy-loaded Plotly + server-pushed data stream. |
 | 09 | [markdown_render](09_markdown_render/) | Lazy-loaded KaTeX + Mermaid + DOMPurify; math and diagrams on demand. |
 | 10 | [full_dashboard](10_full_dashboard/) | Capstone: multi-view SPA with uploads, live charts, and a chat panel. |
+| 11 | [plotly_advanced](11_plotly_advanced/) | 3D surface, heatmap, candlestick, choropleth — chart types only in `plotly/full`. |
 
 ## Conventions
 
@@ -55,7 +56,7 @@ Env knobs for the gallery:
 - `_common.py` in this directory provides the shared session/WebSocket
   bootstrap used by samples 02–10.
 - The client-side WebSocket is always `window.LlmingWebSocket` (loaded
-  by `llming-stage` — see [llming-com integration](../docs/llming-com.md)).
+  by `llming-stage` — see [llming-com integration](../docs/content/llming-com.md)).
 - Samples fetch `/api/session` on first mount to obtain
   `{sessionId, wsUrl}` and the auth cookie. The session is
   server-generated and returned together with a signed cookie —

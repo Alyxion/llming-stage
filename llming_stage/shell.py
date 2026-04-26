@@ -184,6 +184,7 @@ def _asset_routes(
     static_dir: Path,
     icons_archive: ZipArchive | None,
     emoji_archive: ZipArchive | None,
+    tabler_archive: ZipArchive | None,
 ) -> list[Route]:
     prefix = asset_prefix.rstrip("/")
     routes: list[Route] = []
@@ -221,6 +222,10 @@ def _asset_routes(
         routes.append(
             Route(f"{prefix}/emoji/{{path:path}}", make_zip_handler(emoji_archive))
         )
+    if tabler_archive is not None:
+        routes.append(
+            Route(f"{prefix}/tabler/{{path:path}}", make_zip_handler(tabler_archive))
+        )
     llming_com_dir = _llming_com_static_dir()
     routes.append(
         Route(
@@ -241,6 +246,7 @@ def mount_assets(
     static_dir: Path | None = None,
     icons_zip: Path | None = None,
     emoji_zip: Path | None = None,
+    tabler_zip: Path | None = None,
 ) -> None:
     """Mount the llming-stage asset routes onto *app*.
 
@@ -249,10 +255,12 @@ def mount_assets(
     icon/emoji archives from the installed package. Override paths for
     development or to swap in alternate asset sets.
     """
-    icons_path = icons_zip if icons_zip is not None else _ASSETS_ROOT / "phosphor-icons.zip"
-    emoji_path = emoji_zip if emoji_zip is not None else _ASSETS_ROOT / "noto-emoji.zip"
-    icons_archive = ZipArchive(icons_path) if icons_path.exists() else None
-    emoji_archive = ZipArchive(emoji_path) if emoji_path.exists() else None
+    icons_path  = icons_zip  if icons_zip  is not None else _ASSETS_ROOT / "phosphor-icons.zip"
+    emoji_path  = emoji_zip  if emoji_zip  is not None else _ASSETS_ROOT / "noto-emoji.zip"
+    tabler_path = tabler_zip if tabler_zip is not None else _ASSETS_ROOT / "tabler-icons.zip"
+    icons_archive  = ZipArchive(icons_path)  if icons_path.exists()  else None
+    emoji_archive  = ZipArchive(emoji_path)  if emoji_path.exists()  else None
+    tabler_archive = ZipArchive(tabler_path) if tabler_path.exists() else None
 
     routes = _asset_routes(
         asset_prefix,
@@ -262,6 +270,7 @@ def mount_assets(
         static_dir=static_dir or _STATIC_ROOT,
         icons_archive=icons_archive,
         emoji_archive=emoji_archive,
+        tabler_archive=tabler_archive,
     )
     for route in routes:
         app.router.routes.append(route)

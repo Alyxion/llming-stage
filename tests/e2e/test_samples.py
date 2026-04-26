@@ -187,6 +187,18 @@ def test_09_markdown_render(sample_server: str, page: Page) -> None:
 # ---------------------------------------------------------------------------
 # 10 — full_dashboard (everything composed)
 # ---------------------------------------------------------------------------
+@pytest.mark.sample("11_plotly_advanced")
+def test_11_plotly_advanced(sample_server: str, page: Page) -> None:
+    requests: list[str] = []
+    page.on("request", lambda r: requests.append(r.url))
+    page.goto(sample_server)
+    expect(page.locator(".text-h5")).to_contain_text("advanced bundle", timeout=15_000)
+    for cid in ("#chart-surface", "#chart-heat", "#chart-candle", "#chart-sankey"):
+        expect(page.locator(cid)).to_have_count(1, timeout=10_000)
+    page.wait_for_selector("#chart-surface canvas, #chart-surface svg", timeout=15_000)
+    assert any("plotly-full.min.js" in u for u in requests), requests[-10:]
+
+
 @pytest.mark.sample("10_full_dashboard")
 def test_10_full_dashboard(sample_server: str, page: Page) -> None:
     session = open_sample(page, sample_server)
