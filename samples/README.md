@@ -1,6 +1,6 @@
 # llming-stage samples
 
-Thirteen progressively richer sample apps that show how to build with
+Thirteen sample apps that show how to build with
 `llming-stage` + [`llming-com`](https://github.com/Alyxion/llming-com)
 (the Python WebSocket session framework) by the book. Every sample
 that need server reactivity open **one WebSocket per user** and route
@@ -26,7 +26,7 @@ Prefer a straight launch without the gallery? Just run the sample
 directly:
 
 ```bash
-poetry run python samples/02_hello_world/main.py
+poetry run python samples/hello_world/main.py
 ```
 
 Env knobs for the gallery:
@@ -34,23 +34,23 @@ Env knobs for the gallery:
 - `GALLERY_PORT` (default `8000`) — the port the gallery listens on.
 - `SAMPLE_PORT`  (default `8765`) — the port each sample runs on.
 
-## The progression
+## Samples
 
-| # | Sample | Demonstrates |
-|---|--------|--------------|
-| 01 | [static](01_static/) | Pure static shell — no WebSocket, no llming-com. Could be deployed to GitHub Pages. |
-| 02 | [hello_world](02_hello_world/) | Smallest normal app: FastAPI + `Stage` + one tiny Vue file. |
-| 03 | [counter_command](03_counter_command/) | First llming-com sample: Pydantic input/output, server-side state, and Python-to-Vue method calls. |
-| 04 | [multi_view](04_multi_view/) | Two SPA routes plus an imported child Vue component sharing one WebSocket. |
-| 05 | [file_upload](05_file_upload/) | HTTP POST upload (cookie-authed) + WebSocket progress notifications. |
-| 06 | [chat_stream](06_chat_stream/) | Server streams token-by-token replies over the WebSocket. |
-| 07 | [3d_scene](07_3d_scene/) | Lazy-loaded Three.js; purely client-side, no WebSocket needed. |
-| 08 | [plotly_dashboard](08_plotly_dashboard/) | Lazy-loaded ECharts + server-pushed data stream. |
-| 09 | [markdown_render](09_markdown_render/) | Lazy-loaded KaTeX + DOMPurify; math and sanitized HTML on demand. |
-| 10 | [full_dashboard](10_full_dashboard/) | Capstone: session routers, app router broadcast, uploads, live charts, and chat. |
-| 11 | [plotly_advanced](11_plotly_advanced/) | 3D surface, heatmap, candlestick, Sankey — chart types only in `plotly/full`. |
-| 12 | [extension_workbench](12_extension_workbench/) | Marked, DOMPurify, Mermaid, CodeMirror, Drawflow, xterm, and xterm add-ons in one polished Stage app. |
-| 13 | [basic_components](13_basic_components/) | Core UI surface: Tailwind layout, Quasar forms, buttons, menus, dialogs, notifications, tabs, tables, trees, and progress. |
+| Sample | Demonstrates |
+|--------|--------------|
+| [static_shell](static_shell/) | Pure static shell — no WebSocket, no llming-com. Could be deployed to GitHub Pages. |
+| [hello_world](hello_world/) | Smallest normal app: FastAPI + `Stage` + one tiny Vue file. |
+| [counter](counter/) | First llming-com sample: Pydantic input/output, server-side state, and Python-to-Vue method calls. |
+| [multi_view](multi_view/) | Two SPA routes plus an imported child Vue component sharing one WebSocket. |
+| [file_upload](file_upload/) | HTTP POST upload (cookie-authed) + WebSocket progress notifications. |
+| [chat_stream](chat_stream/) | Server streams token-by-token replies over the WebSocket. |
+| [three_scene](three_scene/) | Lazy-loaded Three.js; purely client-side, no WebSocket needed. |
+| [analytics_dashboard](analytics_dashboard/) | Lazy-loaded ECharts + server-pushed data stream. |
+| [markdown_render](markdown_render/) | Lazy-loaded KaTeX + DOMPurify; math and sanitized HTML on demand. |
+| [capstone_dashboard](capstone_dashboard/) | Capstone: session routers, app router broadcast, uploads, live charts, and chat. |
+| [plotly_advanced](plotly_advanced/) | 3D surface, heatmap, candlestick, Sankey — chart types only in `plotly/full`. |
+| [extension_workbench](extension_workbench/) | Marked, DOMPurify, Mermaid, CodeMirror, Drawflow, xterm, and xterm add-ons in one polished Stage app. |
+| [basic_components](basic_components/) | Core UI surface: Tailwind layout, Quasar forms, buttons, menus, dialogs, notifications, tabs, tables, trees, and progress. |
 
 ## Conventions
 
@@ -63,9 +63,8 @@ Env knobs for the gallery:
   `style=`, no imperative `innerHTML`, and no app views hidden under
   `static/*.js`. `tests/test_sample_conventions.py` enforces this.
 - Static/frontend-only samples use `Stage(app).view(...)` directly.
-- llming-com samples use `_common.py` plus `view_sources={...}` for shared
-  session/WebSocket bootstrap, keeping each `main.py` focused on its
-  reactive idea.
+- llming-com samples use `Stage.session(...)` or the shared `_common.py`
+  helpers where that keeps the sample focused on its reactive idea.
 - Vue views call `await this.$stage.connect()` and send reactive commands
   via `this.$stage.send("router.handler", payload)`.
 - Python calls Vue methods directly with addressed calls such as

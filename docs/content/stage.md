@@ -117,11 +117,12 @@ For conventional llming-com apps, `Stage.session(...)` mounts
 
 ```python title="main.py"
 from fastapi import FastAPI
-from llming_com import SessionRouter
 from llming_stage import Stage
 
 app = FastAPI()
-counter = SessionRouter(prefix="counter")
+stage = Stage(app)
+sessions = stage.session()
+counter = sessions.router("counter")
 
 @counter.handler("inc")
 async def inc(session, by: int = 1):
@@ -130,7 +131,7 @@ async def inc(session, by: int = 1):
     await session.call("home.setCounter", value)
     return {"ok": True}
 
-Stage(app).session(session_router=counter).view("/", "home.vue")
+stage.view("/", "home.vue")
 ```
 
 ```vue title="home.vue"

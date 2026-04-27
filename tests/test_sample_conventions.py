@@ -8,7 +8,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 SAMPLES = ROOT / "samples"
-SAMPLE_VIEWS = sorted(SAMPLES.glob("[0-9][0-9]_*/*.vue"))
+SAMPLE_VIEWS = sorted(
+    path for path in SAMPLES.glob("*/*.vue") if (path.parent / "main.py").is_file()
+)
 
 
 @pytest.mark.parametrize("path", SAMPLE_VIEWS, ids=lambda p: str(p.relative_to(ROOT)))
@@ -28,4 +30,8 @@ def test_sample_views_are_declarative_vue(path: Path) -> None:
 
 
 def test_sample_views_are_not_hidden_in_static_dirs() -> None:
-    assert not list(SAMPLES.glob("[0-9][0-9]_*/static/*.js"))
+    assert not [
+        path
+        for path in SAMPLES.glob("*/static/*.js")
+        if (path.parent.parent / "main.py").is_file()
+    ]

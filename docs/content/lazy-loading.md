@@ -49,7 +49,7 @@ The loader ships with these components pre-registered:
 | `codemirror` | First CodeMirror 5 editor mounted |
 
 The library does not trigger these itself; app code decides *when* to
-call `load()`. The `samples/12_extension_workbench` app exercises the
+call `load()`. The `samples/extension_workbench` app exercises the
 full optional extension list end-to-end.
 
 ## Registering custom components

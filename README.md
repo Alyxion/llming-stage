@@ -77,9 +77,13 @@ Reactive apps add a typed session router and let Stage mount the
 conventional session routes:
 
 ```python
-from llming_com import SessionRouter
+from fastapi import FastAPI
+from llming_stage import Stage
 
-counter = SessionRouter(prefix="counter")
+app = FastAPI()
+stage = Stage(app)
+sessions = stage.session()
+counter = sessions.router("counter")
 
 @counter.handler("inc")
 async def inc(session, by: int = 1):
@@ -88,7 +92,7 @@ async def inc(session, by: int = 1):
     await session.call("home.setCounter", value)
     return {"ok": True}
 
-Stage(app).session(session_router=counter).view("/", "home.vue")
+stage.view("/", "home.vue")
 ```
 
 The browser gets a real Vue + Quasar SPA from `.vue` view files.

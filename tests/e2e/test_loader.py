@@ -18,9 +18,9 @@ def test_loader_is_idempotent_and_dedupes(gallery_server, page: Page) -> None:
     base, _ = gallery_server
     page.goto(base)
     # Land in any sample so __stage is mounted in an iframe we can drive.
-    page.locator("[data-sample='02_hello_world']").click()
+    page.locator("[data-sample='hello_world']").click()
     expect(page.locator("[data-test='current']")).to_contain_text(
-        "02_hello_world", timeout=20_000
+        "hello_world", timeout=20_000
     )
 
     frame = page.frame_locator("[data-test='frame']")

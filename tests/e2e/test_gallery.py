@@ -19,16 +19,16 @@ def test_gallery_lists_all_samples(gallery_server, page: Page) -> None:
         "         .map(e => e.getAttribute('data-sample'))"
     )
     assert len(names) >= 10
-    assert names[0] == "01_static"
-    assert "10_full_dashboard" in names
+    assert "static_shell" in names
+    assert "capstone_dashboard" in names
 
 
 def test_gallery_launches_sample_into_iframe(gallery_server, page: Page) -> None:
     base, _ = gallery_server
     page.goto(base)
-    page.locator("[data-sample='02_hello_world']").click()
+    page.locator("[data-sample='hello_world']").click()
     expect(page.locator("[data-test='current']")).to_contain_text(
-        "02_hello_world", timeout=20_000
+        "hello_world", timeout=20_000
     )
     expect(
         page.frame_locator("[data-test='frame']").locator("h1").first
@@ -39,17 +39,17 @@ def test_gallery_switches_between_samples(gallery_server, page: Page) -> None:
     base, _ = gallery_server
     page.goto(base)
 
-    page.locator("[data-sample='02_hello_world']").click()
+    page.locator("[data-sample='hello_world']").click()
     expect(page.locator("[data-test='current']")).to_contain_text(
-        "02_hello_world", timeout=20_000
+        "hello_world", timeout=20_000
     )
     expect(
         page.frame_locator("[data-test='frame']").locator("h1").first
     ).to_contain_text("Hello world", timeout=15_000)
 
-    page.locator("[data-sample='03_counter_command']").click()
+    page.locator("[data-sample='counter']").click()
     expect(page.locator("[data-test='current']")).to_contain_text(
-        "03_counter_command", timeout=20_000
+        "counter", timeout=20_000
     )
     expect(
         page.frame_locator("[data-test='frame']").locator(".text-overline")
@@ -59,9 +59,9 @@ def test_gallery_switches_between_samples(gallery_server, page: Page) -> None:
 def test_gallery_stop_button(gallery_server, page: Page) -> None:
     base, _ = gallery_server
     page.goto(base)
-    page.locator("[data-sample='01_static']").click()
+    page.locator("[data-sample='static_shell']").click()
     expect(page.locator("[data-test='current']")).to_contain_text(
-        "01_static", timeout=20_000
+        "static_shell", timeout=20_000
     )
     page.locator("[data-test='btn-stop']").click()
     expect(page.locator("[data-test='current']")).to_have_count(0, timeout=15_000)
@@ -84,9 +84,9 @@ def test_iframe_fills_content_area(gallery_server, page: Page) -> None:
     base, _ = gallery_server
     page.set_viewport_size({"width": 1280, "height": 800})
     page.goto(base)
-    page.locator("[data-sample='02_hello_world']").click()
+    page.locator("[data-sample='hello_world']").click()
     expect(page.locator("[data-test='current']")).to_contain_text(
-        "02_hello_world", timeout=20_000
+        "hello_world", timeout=20_000
     )
     box = page.locator("[data-test='frame']").bounding_box(timeout=15_000)
     assert box is not None
@@ -101,9 +101,9 @@ def test_sample_inherits_dark_mode(gallery_server, page: Page) -> None:
     import re
     base, _ = gallery_server
     page.goto(base)
-    page.locator("[data-sample='02_hello_world']").click()
+    page.locator("[data-sample='hello_world']").click()
     expect(page.locator("[data-test='current']")).to_contain_text(
-        "02_hello_world", timeout=20_000
+        "hello_world", timeout=20_000
     )
     frame = page.frame_locator("[data-test='frame']")
     expect(frame.locator("h1").first).to_contain_text("Hello world", timeout=15_000)

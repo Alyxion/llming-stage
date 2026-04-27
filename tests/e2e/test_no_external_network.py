@@ -15,13 +15,13 @@ from playwright.sync_api import Page, expect
 
 
 SAMPLES_TO_VISIT = [
-    "01_static",         # static-only path
-    "07_3d_scene",       # tornado — three + addons + shaders
-    "08_plotly_dashboard",  # echarts
-    "09_markdown_render",   # katex + dompurify lazy load
-    "11_plotly_advanced",   # plotly-full (4.8 MB)
-    "12_extension_workbench",  # all optional lazy extensions
-    "13_basic_components",  # bundled Tailwind + core UI components
+    "static_shell",         # static-only path
+    "three_scene",          # tornado — three + addons + shaders
+    "analytics_dashboard",  # echarts
+    "markdown_render",      # katex + dompurify lazy load
+    "plotly_advanced",      # plotly-full (4.8 MB)
+    "extension_workbench",  # all optional lazy extensions
+    "basic_components",     # bundled Tailwind + core UI components
 ]
 
 

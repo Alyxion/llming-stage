@@ -18,20 +18,20 @@ pytestmark = pytest.mark.timeout(60)
 
 
 # ---------------------------------------------------------------------------
-# 01 — static (no WebSocket)
+# static_shell — no WebSocket
 # ---------------------------------------------------------------------------
-@pytest.mark.sample("01_static")
-def test_01_static(sample_server: str, page: Page) -> None:
+@pytest.mark.sample("static_shell")
+def test_static_shell(sample_server: str, page: Page) -> None:
     page.goto(sample_server)
     expect(page.locator(".text-h2")).to_contain_text("Static shell")
     expect(page.locator(".text-subtitle1")).to_contain_text("One Vue view")
 
 
 # ---------------------------------------------------------------------------
-# 02 — hello_world (minimal Vue app)
+# hello_world — minimal Vue app
 # ---------------------------------------------------------------------------
-@pytest.mark.sample("02_hello_world")
-def test_02_hello_world(sample_server: str, page: Page) -> None:
+@pytest.mark.sample("hello_world")
+def test_hello_world(sample_server: str, page: Page) -> None:
     page.goto(sample_server)
     expect(page.locator("h1")).to_contain_text("Hello world")
     expect(page.locator("p.text-lg")).to_contain_text("Hot reload by default")
@@ -41,10 +41,10 @@ def test_02_hello_world(sample_server: str, page: Page) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 03 — counter (server state + reactive push)
+# counter — server state + reactive push
 # ---------------------------------------------------------------------------
-@pytest.mark.sample("03_counter_command")
-def test_03_counter(sample_server: str, page: Page) -> None:
+@pytest.mark.sample("counter")
+def test_counter(sample_server: str, page: Page) -> None:
     session = open_sample(page, sample_server)
     wait_controller_ready(page, sample_server, session["sessionId"])
 
@@ -62,10 +62,10 @@ def test_03_counter(sample_server: str, page: Page) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 04 — multi_view (shared socket across client-side navigation)
+# multi_view — shared socket across client-side navigation
 # ---------------------------------------------------------------------------
-@pytest.mark.sample("04_multi_view")
-def test_04_multi_view(sample_server: str, page: Page) -> None:
+@pytest.mark.sample("multi_view")
+def test_multi_view(sample_server: str, page: Page) -> None:
     session = open_sample(page, sample_server)
     wait_controller_ready(page, sample_server, session["sessionId"])
     expect(page.locator(".text-h4")).to_contain_text("Multi-view")
@@ -86,10 +86,10 @@ def test_04_multi_view(sample_server: str, page: Page) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 05 — file_upload (narrow HTTP + WS progress)
+# file_upload — narrow HTTP + WS progress
 # ---------------------------------------------------------------------------
-@pytest.mark.sample("05_file_upload")
-def test_05_file_upload(sample_server: str, page: Page) -> None:
+@pytest.mark.sample("file_upload")
+def test_file_upload(sample_server: str, page: Page) -> None:
     session = open_sample(page, sample_server)
     wait_controller_ready(page, sample_server, session["sessionId"])
 
@@ -109,10 +109,10 @@ def test_05_file_upload(sample_server: str, page: Page) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 06 — chat_stream (server-streamed deltas)
+# chat_stream — server-streamed deltas
 # ---------------------------------------------------------------------------
-@pytest.mark.sample("06_chat_stream")
-def test_06_chat_stream(sample_server: str, page: Page) -> None:
+@pytest.mark.sample("chat_stream")
+def test_chat_stream(sample_server: str, page: Page) -> None:
     session = open_sample(page, sample_server)
     wait_controller_ready(page, sample_server, session["sessionId"])
 
@@ -124,10 +124,10 @@ def test_06_chat_stream(sample_server: str, page: Page) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 07 — 3d_scene (lazy Three.js, no WS)
+# three_scene — lazy Three.js, no WS
 # ---------------------------------------------------------------------------
-@pytest.mark.sample("07_3d_scene")
-def test_07_3d_scene(sample_server: str, page: Page) -> None:
+@pytest.mark.sample("three_scene")
+def test_three_scene(sample_server: str, page: Page) -> None:
     requests: list[str] = []
     page.on("request", lambda r: requests.append(r.url))
     page.goto(sample_server)
@@ -140,10 +140,10 @@ def test_07_3d_scene(sample_server: str, page: Page) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 08 — plotly_dashboard (lazy Plotly + streamed samples)
+# analytics_dashboard — lazy ECharts dashboard
 # ---------------------------------------------------------------------------
-@pytest.mark.sample("08_plotly_dashboard")
-def test_08_plotly_dashboard(sample_server: str, page: Page) -> None:
+@pytest.mark.sample("analytics_dashboard")
+def test_analytics_dashboard(sample_server: str, page: Page) -> None:
     page.goto(sample_server)
     expect(page.locator(".dash-title")).to_contain_text(
         "Analytics Dashboard", timeout=15_000
@@ -163,10 +163,10 @@ def test_08_plotly_dashboard(sample_server: str, page: Page) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 09 — markdown_render (lazy KaTeX + DOMPurify)
+# markdown_render — lazy KaTeX + DOMPurify
 # ---------------------------------------------------------------------------
-@pytest.mark.sample("09_markdown_render")
-def test_09_markdown_render(sample_server: str, page: Page) -> None:
+@pytest.mark.sample("markdown_render")
+def test_markdown_render(sample_server: str, page: Page) -> None:
     page.goto(sample_server)
     expect(page.locator(".text-h5")).to_contain_text("Math + sanitised HTML")
 
@@ -180,8 +180,8 @@ def test_09_markdown_render(sample_server: str, page: Page) -> None:
 
 
 # ---------------------------------------------------------------------------
-@pytest.mark.sample("11_plotly_advanced")
-def test_11_plotly_advanced(sample_server: str, page: Page) -> None:
+@pytest.mark.sample("plotly_advanced")
+def test_plotly_advanced(sample_server: str, page: Page) -> None:
     requests: list[str] = []
     console_messages: list[str] = []
     page.on("request", lambda r: requests.append(r.url))
@@ -196,10 +196,10 @@ def test_11_plotly_advanced(sample_server: str, page: Page) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 10 — full_dashboard (everything composed)
+# capstone_dashboard — everything composed
 # ---------------------------------------------------------------------------
-@pytest.mark.sample("10_full_dashboard")
-def test_10_full_dashboard(sample_server: str, page: Page) -> None:
+@pytest.mark.sample("capstone_dashboard")
+def test_capstone_dashboard(sample_server: str, page: Page) -> None:
     session = open_sample(page, sample_server)
     wait_controller_ready(page, sample_server, session["sessionId"])
     expect(page.locator(".cap-brand-name")).to_contain_text("Capstone")
@@ -227,10 +227,10 @@ def test_10_full_dashboard(sample_server: str, page: Page) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 12 — extension_workbench (all optional lazy extensions)
+# extension_workbench — all optional lazy extensions
 # ---------------------------------------------------------------------------
-@pytest.mark.sample("12_extension_workbench")
-def test_12_extension_workbench(sample_server: str, page: Page) -> None:
+@pytest.mark.sample("extension_workbench")
+def test_extension_workbench(sample_server: str, page: Page) -> None:
     requests: list[str] = []
     page.on("request", lambda r: requests.append(r.url))
     page.goto(sample_server)
@@ -262,10 +262,10 @@ def test_12_extension_workbench(sample_server: str, page: Page) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 13 — basic_components (Tailwind + core Quasar UI surface)
+# basic_components — Tailwind + core Quasar UI surface
 # ---------------------------------------------------------------------------
-@pytest.mark.sample("13_basic_components")
-def test_13_basic_components(sample_server: str, page: Page) -> None:
+@pytest.mark.sample("basic_components")
+def test_basic_components(sample_server: str, page: Page) -> None:
     requests: list[str] = []
     page.on("request", lambda r: requests.append(r.url))
     page.goto(sample_server)
@@ -289,19 +289,19 @@ def test_13_basic_components(sample_server: str, page: Page) -> None:
 @pytest.mark.parametrize(
     "sample_server,title",
     [
-        ("01_static", "Sample 01 — Static"),
-        ("02_hello_world", "Sample 02 — Hello world"),
-        ("03_counter_command", "Sample 03 — Counter"),
-        ("04_multi_view", "Sample 04 — Multi-view"),
-        ("05_file_upload", "Sample 05 — File upload"),
-        ("06_chat_stream", "Sample 06 — Streaming chat"),
-        ("07_3d_scene", "Sample 07 — Three.js"),
-        ("08_plotly_dashboard", "Sample 08 — Analytics Dashboard"),
-        ("09_markdown_render", "Sample 09 — Math + sanitised HTML"),
-        ("10_full_dashboard", "Sample 10 — Capstone dashboard"),
-        ("11_plotly_advanced", "Sample 11 — Advanced Plotly"),
-        ("12_extension_workbench", "Extension workbench"),
-        ("13_basic_components", "Sample 13 - Basic components"),
+        ("static_shell", "Static shell"),
+        ("hello_world", "Hello world"),
+        ("counter", "Counter"),
+        ("multi_view", "Multi-view"),
+        ("file_upload", "File upload"),
+        ("chat_stream", "Streaming chat"),
+        ("three_scene", "Three.js"),
+        ("analytics_dashboard", "Analytics Dashboard"),
+        ("markdown_render", "Math + sanitised HTML"),
+        ("capstone_dashboard", "Capstone dashboard"),
+        ("plotly_advanced", "Advanced Plotly"),
+        ("extension_workbench", "Extension workbench"),
+        ("basic_components", "Basic components"),
     ],
     indirect=["sample_server"],
 )

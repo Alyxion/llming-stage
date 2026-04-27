@@ -13,14 +13,14 @@ import re
 import pytest
 from playwright.sync_api import Page, expect
 
-# Sample 07 deliberately renders an all-black 3D scene regardless of theme,
+# The Three.js sample deliberately renders an all-black 3D scene regardless of theme,
 # so its body background never inverts. The rest must.
-ALWAYS_DARK = {"07_3d_scene"}
+ALWAYS_DARK = {"three_scene"}
 SAMPLES = [
-    "01_static", "02_hello_world", "03_counter_command", "04_multi_view",
-    "05_file_upload", "06_chat_stream", "07_3d_scene", "08_plotly_dashboard",
-    "09_markdown_render", "10_full_dashboard", "11_plotly_advanced",
-    "12_extension_workbench", "13_basic_components",
+    "static_shell", "hello_world", "counter", "multi_view",
+    "file_upload", "chat_stream", "three_scene", "analytics_dashboard",
+    "markdown_render", "capstone_dashboard", "plotly_advanced",
+    "extension_workbench", "basic_components",
 ]
 
 

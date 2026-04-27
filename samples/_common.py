@@ -1,17 +1,17 @@
-"""Shared wiring used by samples 02-10.
+"""Shared support used by reactive samples.
 
-Keeps each sample's ``main.py`` focused on what it demonstrates, not on
-session plumbing. Import as ``from samples._common import bootstrap``.
-
-The shape every sample follows:
+Keeps each sample's ``main.py`` focused on what it demonstrates.
+The usual shape is now provided by ``Stage.session(...)``:
 
     GET  /                    → SPA shell (llming-stage)
     GET  /api/session         → creates a session, sets the auth cookie,
                                 returns {sessionId, wsUrl}. View JS
                                 fetches this on mount.
-    POST /cmd/...             → llming-com HTTP command endpoints.
     WS   /ws/{session_id}     → llming-com WebSocket session.
     GET  /_stage/app/*.js     → view modules rendered from root-level .vue files.
+
+The compatibility ``bootstrap`` helper remains for lower-level tests and
+custom wiring, but public samples should prefer ``Stage.session(...)``.
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ def _jsonable(value: Any) -> Any:
 
 # ---------------------------------------------------------------------------
 # Debug commands — registered once (at module import), mounted by every
-# sample that calls bootstrap(). Expose the session's reactive surface to
+# reactive sample. Expose the session's reactive surface to
 # AI agents and tests over HTTP.
 # ---------------------------------------------------------------------------
 

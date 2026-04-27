@@ -110,7 +110,10 @@ from fastapi import FastAPI
 from llming_stage import Stage
 
 app = FastAPI()
-stage = Stage(app).session(session_router=counter, app_router=admin)
+stage = Stage(app)
+sessions = stage.session()
+counter = sessions.router("counter")
+admin = sessions.app_router("admin")
 stage.view("/", "home.vue")
 ```
 

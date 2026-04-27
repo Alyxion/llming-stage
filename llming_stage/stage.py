@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route, WebSocketRoute
@@ -38,6 +39,129 @@ class _View:
     name: str
     source: Path
     module_url: str
+
+
+class StageSession:
+    """Stage-owned llming-com session wiring.
+
+    Normal apps should ask this object for namespaced routers instead of
+    assembling root routers manually.
+    """
+
+    def __init__(
+        self,
+        stage: "Stage",
+        *,
+        app_name: str,
+        session_cls: Any,
+        registry: Any,
+        app_context: Any,
+        auth: Any,
+        controller_cls: Any,
+        command_prefix: str | None,
+    ) -> None:
+        from llming_com import AppRouter, SessionRouter
+
+        self.stage = stage
+        self.app_name = app_name
+        self.session_cls = session_cls
+        self.registry = registry
+        self.app = app_context
+        self.auth = auth
+        self.controller_cls = controller_cls
+        self.session_router = SessionRouter()
+        self.application_router = AppRouter()
+        self.command_prefix = command_prefix
+
+        self._mount_routes()
+        self._mount_command_router()
+
+    def router(self, prefix: str) -> Any:
+        """Create and mount a session-scoped router namespace."""
+        from llming_com import SessionRouter
+
+        child = SessionRouter(prefix=prefix)
+        self.session_router.include(child)
+        return child
+
+    def app_router(self, prefix: str) -> Any:
+        """Create and mount an application-scoped router namespace."""
+        from llming_com import AppRouter
+
+        child = AppRouter(prefix=prefix)
+        self.application_router.include(child)
+        return child
+
+    async def require_session(self, request: Request) -> Any:
+        """FastAPI dependency returning the current cookie-authenticated session."""
+
+        session_id = self.auth.get_auth_session_id(request)
+        if not session_id:
+            raise HTTPException(status_code=401, detail="missing or invalid session cookie")
+        session = self.registry.get_session(session_id)
+        if session is None:
+            raise HTTPException(status_code=401, detail="session not found")
+        return session
+
+    def _mount_routes(self) -> None:
+        from llming_com import run_websocket_session
+
+        async def create_session(request: Request) -> JSONResponse:
+            existing = self.auth.get_auth_session_id(request)
+            if existing and self.registry.get_session(existing):
+                session_id = existing
+                token = self.auth.sign_auth_token(session_id)
+            else:
+                session_id = str(uuid.uuid4())
+                entry = self.session_cls(user_id=f"user-{session_id[:8]}")
+                self.registry.register(session_id, entry)
+                token = self.auth.sign_auth_token(session_id)
+            ws_scheme = "wss" if request.url.scheme == "https" else "ws"
+            ws_url = f"{ws_scheme}://{request.url.netloc}/ws/{session_id}"
+            resp = JSONResponse({"sessionId": session_id, "wsUrl": ws_url})
+            resp.set_cookie(
+                f"{self.app_name}_auth",
+                token,
+                httponly=True,
+                samesite="lax",
+            )
+            return resp
+
+        async def ws_endpoint(websocket: Any) -> None:
+            session_id = websocket.path_params["session_id"]
+
+            async def on_connect(entry: Any, ws: Any) -> None:
+                controller = self.controller_cls(session_id)
+                controller.set_websocket(ws)
+                controller.attach_session(entry)
+                controller.attach_app(self.app)
+                controller.mount_session_router(self.session_router)
+                controller.mount_app_router(self.application_router)
+                await controller.send({"type": "welcome", "session_id": session_id})
+
+            async def on_message(entry: Any, msg: dict[str, Any]) -> None:
+                if entry.controller is not None:
+                    await entry.controller.handle_message(msg)
+
+            await run_websocket_session(
+                websocket,
+                session_id,
+                self.registry,
+                on_connect=on_connect,
+                on_message=on_message,
+            )
+
+        self.stage._insert_before_shell(Route("/api/session", create_session))
+        self.stage._insert_before_shell(WebSocketRoute("/ws/{session_id}", ws_endpoint))
+
+    def _mount_command_router(self) -> None:
+        if self.command_prefix is None or not hasattr(self.stage.app, "include_router"):
+            return
+        from llming_com import build_command_router
+
+        self.stage.app.include_router(
+            build_command_router(self.registry, prefix=self.command_prefix)
+        )
 
 
 class Stage:
@@ -106,9 +230,9 @@ class Stage:
         session_cls: Any | None = None,
         registry: Any | None = None,
         app_context: Any | None = None,
-        session_router: Any | None = None,
-        app_router: Any | None = None,
-    ) -> "Stage":
+        controller_cls: Any | None = None,
+        command_prefix: str | None = "/cmd",
+    ) -> StageSession:
         """Mount a default llming-com session endpoint.
 
         This is intentionally FastAPI-native: the host app remains the app,
@@ -121,7 +245,6 @@ class Stage:
             BaseLlmingApp,
             BaseSessionEntry,
             BaseSessionRegistry,
-            run_websocket_session,
         )
 
         os.environ.setdefault("LLMING_AUTH_SECRET", "dev-secret-please-change")
@@ -130,60 +253,23 @@ class Stage:
         session_registry = registry or BaseSessionRegistry.get()
         llming_app = app_context or BaseLlmingApp(session_registry)
         auth = AuthManager(app_name=app_name)
-
-        async def create_session(request: Request) -> JSONResponse:
-            existing = auth.get_auth_session_id(request)
-            if existing and session_registry.get_session(existing):
-                session_id = existing
-                token = auth.sign_auth_token(session_id)
-            else:
-                session_id = str(uuid.uuid4())
-                entry = session_type(user_id=f"user-{session_id[:8]}")
-                session_registry.register(session_id, entry)
-                token = auth.sign_auth_token(session_id)
-            ws_scheme = "wss" if request.url.scheme == "https" else "ws"
-            ws_url = f"{ws_scheme}://{request.url.netloc}/ws/{session_id}"
-            resp = JSONResponse({"sessionId": session_id, "wsUrl": ws_url})
-            resp.set_cookie(
-                f"{app_name}_auth",
-                token,
-                httponly=True,
-                samesite="lax",
-            )
-            return resp
-
-        async def ws_endpoint(websocket: Any, session_id: str) -> None:
-            async def on_connect(entry: Any, ws: Any) -> None:
-                controller = BaseController(session_id)
-                controller.set_websocket(ws)
-                controller.attach_session(entry)
-                controller.attach_app(llming_app)
-                if session_router is not None:
-                    controller.mount_session_router(session_router)
-                if app_router is not None:
-                    controller.mount_app_router(app_router)
-                await controller.send({"type": "welcome", "session_id": session_id})
-
-            async def on_message(entry: Any, msg: dict[str, Any]) -> None:
-                if entry.controller is not None:
-                    await entry.controller.handle_message(msg)
-
-            await run_websocket_session(
-                websocket,
-                session_id,
-                session_registry,
-                on_connect=on_connect,
-                on_message=on_message,
-            )
-
-        self._insert_before_shell(Route("/api/session", create_session))
-        self._insert_before_shell(WebSocketRoute("/ws/{session_id}", ws_endpoint))
+        stage_session = StageSession(
+            self,
+            app_name=app_name,
+            session_cls=session_type,
+            registry=session_registry,
+            app_context=llming_app,
+            auth=auth,
+            controller_cls=controller_cls or BaseController,
+            command_prefix=command_prefix,
+        )
         state = getattr(self.app, "state", None)
         if state is not None:
             setattr(state, "llming_stage_registry", session_registry)
             setattr(state, "llming_stage_app", llming_app)
             setattr(state, "llming_stage_auth", auth)
-        return self
+            setattr(state, "llming_stage_session", stage_session)
+        return stage_session
 
     def build(self, out_dir: str | Path) -> Path:
         """Build a static publish directory for apps without Python backends."""

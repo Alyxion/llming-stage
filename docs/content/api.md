@@ -21,14 +21,17 @@ Stage(app).discover()
 ```
 
 Reactive session apps can mount the conventional llming-com session
-routes:
+routes and ask the returned helper for namespaced routers:
 
 ```python
-Stage(app).session(session_router=counter, app_router=admin)
+stage = Stage(app)
+sessions = stage.session()
+counter = sessions.router("counter")
+admin = sessions.app_router("admin")
 ```
 
-`session_router` must be a `llming_com.SessionRouter`; `app_router` is
-optional and must be a `llming_com.AppRouter`.
+`sessions.require_session` is a FastAPI dependency for cookie-authenticated
+HTTP endpoints that need the current session, for example uploads.
 
 Examples:
 

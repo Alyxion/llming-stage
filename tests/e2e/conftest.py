@@ -93,7 +93,7 @@ def gallery_server() -> Iterator[tuple[str, int]]:
 def sample_server(request: pytest.FixtureRequest) -> Iterator[str]:
     """Start a sample server on a free port and yield its base URL.
 
-    The sample name comes from a ``@pytest.mark.sample("01_static")``
+    The sample name comes from a ``@pytest.mark.sample("static_shell")``
     marker on the test, or — when parametrised indirectly — from
     ``request.param``.
     """
@@ -148,8 +148,8 @@ def open_sample(page, base: str) -> dict:
     page.goto(base)
     return page.evaluate(
         "async () => {\n"
-        "  const r = await fetch('/api/session', {credentials: 'include'});\n"
-        "  return r.json();\n"
+        "  await window.__stage.connect();\n"
+        "  return window.__stage.session();\n"
         "}"
     )
 

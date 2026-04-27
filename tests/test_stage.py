@@ -7,7 +7,7 @@ from pathlib import Path
 from starlette.applications import Starlette
 from starlette.testclient import TestClient
 
-from llming_stage import Stage
+from llming_stage import Stage, StageSession
 
 
 def test_stage_view_serves_vue_and_shell(tmp_path: Path) -> None:
@@ -68,11 +68,33 @@ export default { components: { Drawer } };
 
 def test_stage_session_mounts_default_routes(tmp_path: Path) -> None:
     app = Starlette()
-    Stage(app, root=tmp_path).session()
+    session = Stage(app, root=tmp_path).session(command_prefix=None)
 
     paths = {getattr(route, "path", "") for route in app.router.routes}
     assert "/api/session" in paths
     assert "/ws/{session_id}" in paths
+    assert isinstance(session, StageSession)
+
+
+def test_stage_session_creates_namespaced_routers(tmp_path: Path) -> None:
+    app = Starlette()
+    session = Stage(app, root=tmp_path).session(command_prefix=None)
+
+    counter = session.router("counter")
+    admin = session.app_router("admin")
+
+    @counter.handler("inc")
+    async def inc(session) -> dict:
+        return {"ok": True}
+
+    @admin.handler("broadcast")
+    async def broadcast(app) -> dict:
+        return {"ok": True}
+
+    assert counter.prefix == "counter"
+    assert admin.prefix == "admin"
+    assert "counter.inc" in session.session_router.build_dispatch_table()
+    assert "admin.broadcast" in session.application_router.build_dispatch_table()
 
 
 def test_stage_discover_maps_conventional_routes(tmp_path: Path) -> None:
