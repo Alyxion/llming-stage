@@ -41,6 +41,7 @@ SCAN_GLOBS = (
     "llming_stage/*.py",
     "llming_stage/static/*.js",
     "samples/**/*.py",
+    "samples/**/*.vue",
     "samples/**/*.js",
     "samples/**/*.md",
     "samples/**/*.html",

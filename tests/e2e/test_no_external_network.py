@@ -20,6 +20,8 @@ SAMPLES_TO_VISIT = [
     "08_plotly_dashboard",  # echarts
     "09_markdown_render",   # katex + dompurify lazy load
     "11_plotly_advanced",   # plotly-full (4.8 MB)
+    "12_extension_workbench",  # all optional lazy extensions
+    "13_basic_components",  # bundled Tailwind + core UI components
 ]
 
 

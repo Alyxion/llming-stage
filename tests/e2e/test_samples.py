@@ -24,31 +24,20 @@ pytestmark = pytest.mark.timeout(60)
 def test_01_static(sample_server: str, page: Page) -> None:
     page.goto(sample_server)
     expect(page.locator(".text-h2")).to_contain_text("Static shell")
-    expect(page.locator(".text-subtitle1")).to_contain_text("HTML document")
+    expect(page.locator(".text-subtitle1")).to_contain_text("One Vue view")
 
 
 # ---------------------------------------------------------------------------
-# 02 — hello_world (FE→BE call + BE→FE timer)
+# 02 — hello_world (minimal Vue app)
 # ---------------------------------------------------------------------------
 @pytest.mark.sample("02_hello_world")
 def test_02_hello_world(sample_server: str, page: Page) -> None:
-    session = open_sample(page, sample_server)
-    expect(page.locator(".text-h4")).to_contain_text("hello_world")
-    wait_controller_ready(page, sample_server, session["sessionId"])
-
-    # UI-driven FE→BE call.
-    page.locator("#name").fill("Michael")
-    page.locator("#say").click()
-    expect(page.locator("#reply")).to_contain_text("Hello, Michael!")
-
-    # Debug-command-driven FE→BE call — same handler, same DOM update.
-    result = debug_dispatch(page, session["sessionId"],
-                            {"type": "hello.say", "name": "Agent"})
-    assert result["ok"] is True
-    expect(page.locator("#reply")).to_contain_text("Hello, Agent!")
-
-    # BE→FE timer should have pushed at least one tick by now.
-    expect(page.locator("#tick")).to_contain_text("tick")
+    page.goto(sample_server)
+    expect(page.locator("h1")).to_contain_text("Hello world")
+    expect(page.locator("p.text-lg")).to_contain_text("Hot reload by default")
+    page.wait_for_function(
+        "() => getComputedStyle(document.querySelector('main')).display === 'flex'"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +69,12 @@ def test_04_multi_view(sample_server: str, page: Page) -> None:
     session = open_sample(page, sample_server)
     wait_controller_ready(page, sample_server, session["sessionId"])
     expect(page.locator(".text-h4")).to_contain_text("Multi-view")
+
+    page.locator("#open-drawer").click()
+    expect(page.locator("#drawer")).to_be_visible(timeout=5_000)
+    expect(page.locator("#drawer-message")).to_contain_text("nested Vue component")
+    page.locator("#drawer-close").click()
+    expect(page.locator("#drawer")).to_have_count(0)
 
     page.locator("a[href='/timer']").click()
     expect(page.locator(".text-overline")).to_contain_text("countdown")
@@ -185,25 +180,31 @@ def test_09_markdown_render(sample_server: str, page: Page) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 10 — full_dashboard (everything composed)
-# ---------------------------------------------------------------------------
 @pytest.mark.sample("11_plotly_advanced")
 def test_11_plotly_advanced(sample_server: str, page: Page) -> None:
     requests: list[str] = []
+    console_messages: list[str] = []
     page.on("request", lambda r: requests.append(r.url))
+    page.on("console", lambda msg: console_messages.append(msg.text))
     page.goto(sample_server)
     expect(page.locator(".text-h5")).to_contain_text("advanced bundle", timeout=15_000)
     for cid in ("#chart-surface", "#chart-heat", "#chart-candle", "#chart-sankey"):
         expect(page.locator(cid)).to_have_count(1, timeout=10_000)
     page.wait_for_selector("#chart-surface canvas, #chart-surface svg", timeout=15_000)
     assert any("plotly-full.min.js" in u for u in requests), requests[-10:]
+    assert not any("willReadFrequently" in msg for msg in console_messages)
 
 
+# ---------------------------------------------------------------------------
+# 10 — full_dashboard (everything composed)
+# ---------------------------------------------------------------------------
 @pytest.mark.sample("10_full_dashboard")
 def test_10_full_dashboard(sample_server: str, page: Page) -> None:
     session = open_sample(page, sample_server)
     wait_controller_ready(page, sample_server, session["sessionId"])
     expect(page.locator(".cap-brand-name")).to_contain_text("Capstone")
+    page.get_by_role("button", name="App broadcast").click()
+    expect(page.locator("text=Hello from AppRouter")).to_be_visible(timeout=5_000)
 
     debug_dispatch(page, session["sessionId"], {"type": "chat.ask", "text": "hi"})
 
@@ -223,3 +224,88 @@ def test_10_full_dashboard(sample_server: str, page: Page) -> None:
     })
     page.locator("#go").click()
     expect(page.locator("#progress")).to_contain_text("done", timeout=10_000)
+
+
+# ---------------------------------------------------------------------------
+# 12 — extension_workbench (all optional lazy extensions)
+# ---------------------------------------------------------------------------
+@pytest.mark.sample("12_extension_workbench")
+def test_12_extension_workbench(sample_server: str, page: Page) -> None:
+    requests: list[str] = []
+    page.on("request", lambda r: requests.append(r.url))
+    page.goto(sample_server)
+
+    expect(page.locator("#workbench-title")).to_contain_text(
+        "Extension workbench", timeout=15_000
+    )
+    expect(page.locator("#markdown-out h2")).to_contain_text(
+        "Professional sample brief", timeout=10_000
+    )
+    page.wait_for_selector("#mermaid-out svg", timeout=15_000)
+    page.wait_for_selector(".CodeMirror", timeout=10_000)
+    page.wait_for_selector("#flow-editor .drawflow-node", timeout=10_000)
+    page.wait_for_selector("#terminal .xterm", timeout=10_000)
+
+    expected_assets = [
+        "marked.umd.js",
+        "dompurify.min.js",
+        "mermaid.min.js",
+        "codemirror.js",
+        "drawflow.min.js",
+        "xterm.js",
+        "xterm-addon-fit.js",
+        "xterm-addon-web-links.js",
+        "xterm-addon-webgl.js",
+    ]
+    for asset in expected_assets:
+        assert any(asset in url for url in requests), asset
+
+
+# ---------------------------------------------------------------------------
+# 13 — basic_components (Tailwind + core Quasar UI surface)
+# ---------------------------------------------------------------------------
+@pytest.mark.sample("13_basic_components")
+def test_13_basic_components(sample_server: str, page: Page) -> None:
+    requests: list[str] = []
+    page.on("request", lambda r: requests.append(r.url))
+    page.goto(sample_server)
+
+    expect(page.locator("h1")).to_contain_text("Basic components", timeout=10_000)
+    page.wait_for_function(
+        "() => getComputedStyle(document.querySelector('main')).minHeight !== '0px'"
+    )
+    page.locator("button", has_text="Notify").click()
+    expect(page.locator(".q-notification")).to_contain_text("Notification sent")
+
+    page.locator("button", has_text="Dialog").click()
+    expect(page.locator(".q-dialog .text-h6")).to_contain_text("Review workflow")
+    page.keyboard.press("Escape")
+
+    page.locator(".q-tab", has_text="Tree").click()
+    expect(page.locator(".q-tree")).to_contain_text("Qualified")
+    assert any("tailwindcss.browser.global.js" in url for url in requests)
+
+
+@pytest.mark.parametrize(
+    "sample_server,title",
+    [
+        ("01_static", "Sample 01 — Static"),
+        ("02_hello_world", "Sample 02 — Hello world"),
+        ("03_counter_command", "Sample 03 — Counter"),
+        ("04_multi_view", "Sample 04 — Multi-view"),
+        ("05_file_upload", "Sample 05 — File upload"),
+        ("06_chat_stream", "Sample 06 — Streaming chat"),
+        ("07_3d_scene", "Sample 07 — Three.js"),
+        ("08_plotly_dashboard", "Sample 08 — Analytics Dashboard"),
+        ("09_markdown_render", "Sample 09 — Math + sanitised HTML"),
+        ("10_full_dashboard", "Sample 10 — Capstone dashboard"),
+        ("11_plotly_advanced", "Sample 11 — Advanced Plotly"),
+        ("12_extension_workbench", "Extension workbench"),
+        ("13_basic_components", "Sample 13 - Basic components"),
+    ],
+    indirect=["sample_server"],
+)
+def test_sample_document_titles(sample_server: str, page: Page, title: str) -> None:
+    page.goto(sample_server)
+    assert page.title() == title
+    assert page.title() != "llming"

@@ -1,110 +1,79 @@
-window.__stageViews = window.__stageViews || {};
-window.__stageViews.scene = {
-  async mount(target) {
+<template>
+  <main ref="wrap" class="absolute inset-0 overflow-hidden bg-black">
+    <canvas id="scene-canvas" ref="canvas" class="block h-full w-full"></canvas>
+    <section class="pointer-events-none absolute inset-0 text-slate-100">
+      <header class="absolute left-7 top-6">
+        <h1 class="scene-title-line text-2xl font-bold tracking-tight text-white">Three.js Tornado</h1>
+        <p class="mt-1 text-xs uppercase tracking-[0.18em] text-white/45">drag · right-click pan · scroll zoom</p>
+      </header>
+
+      <div id="scene-controls" class="pointer-events-auto absolute bottom-6 left-1/2 w-[min(720px,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl border border-white/10 bg-black/60 p-4 shadow-2xl shadow-black/60 backdrop-blur-xl">
+        <div class="mb-3 flex items-center gap-2 border-b border-white/10 pb-3 font-medium">
+          <span class="font-extrabold text-orange-400">CTRL</span>
+          <span>Controls</span>
+          <span class="flex-1"></span>
+          <span class="hidden text-xs text-white/55 sm:inline">drag to rotate · scroll to zoom</span>
+        </div>
+        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <label v-for="control in controls" :key="control.id" class="grid grid-cols-[80px_1fr_48px] items-center gap-3 text-xs uppercase tracking-wider text-white/75">
+            <span>{{ control.label }}</span>
+            <input
+              :id="'c-' + control.id"
+              v-model.number="settings[control.key]"
+              class="accent-orange-400"
+              type="range"
+              :min="control.min"
+              :max="control.max"
+              :step="control.step"
+              @input="applySetting(control.key)"
+            >
+            <output :id="'o-' + control.id" class="text-right tabular-nums text-white/70">{{ settings[control.key] }}</output>
+          </label>
+        </div>
+        <div class="mt-4 flex justify-center">
+          <button id="c-reset" type="button" class="rounded-lg border border-orange-400/40 px-5 py-2 text-xs font-bold uppercase tracking-widest text-orange-400 hover:bg-orange-400/10" @click="resetScene">
+            Reset
+          </button>
+        </div>
+      </div>
+    </section>
+  </main>
+</template>
+
+<script>
+export default {
+  data() {
+    return {
+      cleanup: null,
+      controls: [
+        { id: 'particles', label: 'Particles', key: 'particleCount', min: 2000, max: 30000, step: 500 },
+        { id: 'rotation', label: 'Rotation', key: 'rotationSpeed', min: 0.5, max: 5.0, step: 0.1 },
+        { id: 'height', label: 'Height', key: 'height', min: 4, max: 15, step: 0.5 },
+        { id: 'radius', label: 'Radius', key: 'radius', min: 1, max: 6, step: 0.5 },
+        { id: 'glow', label: 'Glow', key: 'colorIntensity', min: 0.2, max: 2.5, step: 0.1 },
+        { id: 'wind', label: 'Turbulence', key: 'windStrength', min: 0, max: 3, step: 0.1 },
+      ],
+      settings: {
+        particleCount: 15000,
+        rotationSpeed: 1.5,
+        height: 10.0,
+        radius: 2.5,
+        colorIntensity: 1.2,
+        windStrength: 0.8,
+      },
+      sceneApi: null,
+    };
+  },
+  async mounted() {
     await window.__stage.load('three');
     await window.__stage.load('three/controls');
     const THREE = await import(window.__stage.base + '/vendor/three.module.min.js');
     const { OrbitControls } = await import(
       window.__stage.base + '/vendor/three-orbit-controls.module.js');
 
-    target.innerHTML = `
-      <div id="scene-wrap">
-        <canvas id="scene-canvas"></canvas>
-        <div id="scene-overlay">
-          <div class="scene-title">
-            <div class="scene-title-line">Three.js Tornado</div>
-            <div class="scene-title-sub">drag · right-click pan · scroll zoom</div>
-          </div>
-          <div id="scene-controls">
-            <div class="sc-header">
-              <q-icon name="tune" size="18px" style="color:#fb923c"></q-icon>
-              <span>Controls</span>
-              <span class="sc-spacer"></span>
-              <span class="sc-hint">drag to rotate · scroll to zoom</span>
-            </div>
-            <div class="sc-grid">
-              <label><span>Particles</span>
-                <input id="c-particles" type="range" min="2000" max="30000" step="500" value="15000">
-                <output id="o-particles">15000</output></label>
-              <label><span>Rotation</span>
-                <input id="c-rotation" type="range" min="0.5" max="5.0" step="0.1" value="1.5">
-                <output id="o-rotation">1.5</output></label>
-              <label><span>Height</span>
-                <input id="c-height" type="range" min="4" max="15" step="0.5" value="10">
-                <output id="o-height">10</output></label>
-              <label><span>Radius</span>
-                <input id="c-radius" type="range" min="1" max="6" step="0.5" value="2.5">
-                <output id="o-radius">2.5</output></label>
-              <label><span>Glow</span>
-                <input id="c-glow" type="range" min="0.2" max="2.5" step="0.1" value="1.2">
-                <output id="o-glow">1.2</output></label>
-              <label><span>Turbulence</span>
-                <input id="c-wind" type="range" min="0" max="3" step="0.1" value="0.8">
-                <output id="o-wind">0.8</output></label>
-            </div>
-            <div class="sc-footer">
-              <button id="c-reset">Reset</button>
-            </div>
-          </div>
-        </div>
-      </div>
-      <style>
-        #scene-wrap { position: absolute; inset: 0; background: #000; overflow: hidden; }
-        #scene-canvas { display: block; width: 100%; height: 100%; }
-        #scene-overlay { position: absolute; inset: 0; pointer-events: none;
-          color: #e9e6ff; font: 14px/1.4 -apple-system, system-ui, sans-serif; }
-        .scene-title { position: absolute; top: 22px; left: 28px; }
-        .scene-title-line { font-size: 24px; font-weight: 700; letter-spacing: -0.01em;
-          color: #fff; text-shadow: 0 2px 20px rgba(255, 140, 60, .35); }
-        .scene-title-sub { margin-top: 4px; opacity: .45; font-size: 11px;
-          letter-spacing: .18em; text-transform: uppercase; color: #aaa; }
-        #scene-controls { position: absolute; bottom: 24px; left: 50%;
-          transform: translateX(-50%); pointer-events: auto; min-width: 560px;
-          padding: 14px 18px 10px; border-radius: 12px;
-          background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(255, 255, 255, 0.12);
-          backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-          box-shadow: 0 14px 50px rgba(0, 0, 0, 0.6); }
-        .sc-header { display: flex; align-items: center; gap: 8px; padding: 0 2px 10px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 10px;
-          font-weight: 500; }
-        .sc-spacer { flex: 1; }
-        .sc-hint { opacity: .55; font-size: 11px; }
-        .sc-grid { display: grid; grid-template-columns: repeat(3, minmax(160px, 1fr));
-          gap: 10px 20px; }
-        .sc-grid label { display: grid; grid-template-columns: 78px 1fr 42px;
-          align-items: center; gap: 10px; font-size: 11px; letter-spacing: .08em;
-          text-transform: uppercase; opacity: .75; }
-        .sc-grid input[type=range] { -webkit-appearance: none; appearance: none;
-          width: 100%; height: 3px; border-radius: 2px; background: rgba(255,255,255,.15);
-          outline: none; }
-        .sc-grid input[type=range]::-webkit-slider-thumb {
-          -webkit-appearance: none; appearance: none; width: 12px; height: 12px;
-          border-radius: 50%; background: #fb923c;
-          box-shadow: 0 0 8px rgba(251, 146, 60, .8); cursor: pointer; }
-        .sc-grid input[type=range]::-moz-range-thumb { width: 12px; height: 12px;
-          border: 0; border-radius: 50%; background: #fb923c;
-          box-shadow: 0 0 8px rgba(251, 146, 60, .8); cursor: pointer; }
-        .sc-grid output { font-variant-numeric: tabular-nums; text-align: right;
-          font-size: 11px; opacity: .7; }
-        .sc-footer { display: flex; justify-content: center; margin-top: 10px; }
-        .sc-footer button { padding: 6px 18px; border: 1px solid rgba(251, 146, 60, .4);
-          background: transparent; color: #fb923c; border-radius: 4px; cursor: pointer;
-          font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
-          transition: background .1s; }
-        .sc-footer button:hover { background: rgba(251, 146, 60, .1); }
-      </style>`;
-
-    const wrap = target.querySelector('#scene-wrap');
-    const canvas = target.querySelector('#scene-canvas');
-
-    const settings = {
-      particleCount: 15000,
-      rotationSpeed: 1.5,
-      height: 10.0,
-      radius: 2.5,
-      colorIntensity: 1.2,
-      windStrength: 0.8,
-    };
+    const wrap = this.$refs.wrap;
+    const canvas = this.$refs.canvas;
+    const settings = this.settings;
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -243,14 +212,9 @@ window.__stageViews.scene = {
     }
     buildTornado();
 
-    const bind = (id, key, parse = parseFloat) => {
-      const el = target.querySelector('#c-' + id);
-      const out = target.querySelector('#o-' + id);
-      out.value = el.value;
-      el.addEventListener('input', () => {
-        const v = parse(el.value);
-        settings[key] = v;
-        out.value = el.value;
+    this.sceneApi = {
+      apply: (key) => {
+        const v = settings[key];
         if (key === 'particleCount') {
           buildTornado();
         } else if (particles) {
@@ -259,26 +223,13 @@ window.__stageViews.scene = {
             particles.material.uniforms[uniformKey].value = v;
           }
         }
-      });
-    };
-    bind('particles', 'particleCount', (v) => parseInt(v, 10));
-    bind('rotation',  'rotationSpeed');
-    bind('height',    'height');
-    bind('radius',    'radius');
-    bind('glow',      'colorIntensity');
-    bind('wind',      'windStrength');
-
-    target.querySelector('#c-reset').addEventListener('click', () => {
-      const defaults = { particles: 15000, rotation: 1.5, height: 10, radius: 2.5, glow: 1.2, wind: 0.8 };
-      for (const [id, v] of Object.entries(defaults)) {
-        const el = target.querySelector('#c-' + id);
-        el.value = v;
-        el.dispatchEvent(new Event('input'));
-      }
+      },
+      resetCamera: () => {
       camera.position.set(0, 5, 15);
       controls.target.set(0, 4, 0);
       controls.update();
-    });
+      },
+    };
 
     const resize = () => {
       const w = wrap.clientWidth, h = wrap.clientHeight;
@@ -303,8 +254,7 @@ window.__stageViews.scene = {
     };
     tick();
 
-    return {
-      unmount() {
+    this.cleanup = () => {
         running = false;
         ro.disconnect();
         controls.dispose();
@@ -312,8 +262,29 @@ window.__stageViews.scene = {
         if (particles) { particles.geometry.dispose(); particles.material.dispose(); }
         ambientGeom.dispose();
         ambient.material.dispose();
-        target.innerHTML = '';
-      },
     };
   },
+  beforeUnmount() {
+    this.cleanup?.();
+  },
+  methods: {
+    applySetting(key) {
+      this.sceneApi?.apply(key);
+    },
+    resetScene() {
+      Object.assign(this.settings, {
+        particleCount: 15000,
+        rotationSpeed: 1.5,
+        height: 10,
+        radius: 2.5,
+        colorIntensity: 1.2,
+        windStrength: 0.8,
+      });
+      this.$nextTick(() => {
+        for (const key of Object.keys(this.settings)) this.applySetting(key);
+        this.sceneApi?.resetCamera();
+      });
+    },
+  },
 };
+</script>

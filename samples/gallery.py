@@ -2,11 +2,11 @@
 
 Runs on http://localhost:8000 with a sample list on the left and an
 iframe on the right. Clicking a sample kills the previous subprocess
-and spawns the selected one on port 8080; the iframe then loads it.
+and spawns the selected one on port 8765; the iframe then loads it.
 
 Env overrides:
     GALLERY_PORT  — port for the gallery itself (default 8000)
-    SAMPLE_PORT   — port each sample is launched on   (default 8080)
+    SAMPLE_PORT   — port each sample is launched on   (default 8765)
 """
 
 from __future__ import annotations
@@ -39,9 +39,7 @@ def _pick_free_port() -> int:
 
 
 GALLERY_PORT = int(os.environ.get("GALLERY_PORT", "8000"))
-# Default to an OS-assigned free port rather than hardcoding 8080 —
-# common dev tools (Teams/OneDrive/Jira/...) often squat on 8080.
-SAMPLE_PORT = int(os.environ.get("SAMPLE_PORT") or _pick_free_port())
+SAMPLE_PORT = int(os.environ.get("SAMPLE_PORT", "8765"))
 
 
 def discover() -> list[dict[str, str]]:
@@ -210,30 +208,16 @@ async def index() -> HTMLResponse:
 
 
 _INDEX_HTML = r"""<!doctype html>
-<html lang="en">
+<html lang="en" class="full-height">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>llming-stage gallery</title>
 <link rel="stylesheet" href="/_stage/fonts/fonts.css">
 <link rel="stylesheet" href="/_stage/vendor/quasar.prod.css">
-<style>
-  html, body, #app { height: 100%; margin: 0; }
-  .name-mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
-  .sample-hint { line-height: 1.35; }
-  /* q-page applies min-height but not height; iframes collapse to their
-   * default 150px in that case. Give the page an explicit height and
-   * anchor the iframe inset:0 so it always fills the visible area. */
-  .iframe-page { height: calc(100vh - 50px); padding: 0; overflow: hidden; }
-  .iframe-host { position: relative; width: 100%; height: 100%; }
-  .iframe-fill { position: absolute; inset: 0; width: 100%; height: 100%; border: 0;
-                 display: block; background: transparent; }
-  .iframe-placeholder { position: absolute; inset: 0; display: flex; align-items: center;
-                        justify-content: center; text-align: center; padding: 24px; opacity: .8; }
-</style>
 </head>
-<body>
-<div id="app">
+<body class="full-height no-margin">
+<div id="app" class="full-height">
   <q-layout view="hHh Lpr lFf">
     <q-header elevated>
       <q-toolbar>
@@ -241,7 +225,7 @@ _INDEX_HTML = r"""<!doctype html>
         <q-toolbar-title class="row items-center q-gutter-sm">
           <span>llming-stage gallery</span>
           <q-chip v-if="current" dense square color="primary" text-color="white" :data-test="'current'">
-            <span class="name-mono">{{ current }}</span>
+            <span class="font-monospace text-caption">{{ current }}</span>
           </q-chip>
           <span v-if="current" class="text-caption text-grey-4">{{ sampleOrigin }}</span>
         </q-toolbar-title>
@@ -265,8 +249,8 @@ _INDEX_HTML = r"""<!doctype html>
                   :active="s.name === current" active-class="bg-primary text-white"
                   @click="pick(s.name)" :data-sample="s.name">
             <q-item-section>
-              <q-item-label class="name-mono">{{ s.name }}</q-item-label>
-              <q-item-label caption lines="2" class="sample-hint">{{ s.hint }}</q-item-label>
+              <q-item-label class="font-monospace text-caption">{{ s.name }}</q-item-label>
+              <q-item-label caption lines="2">{{ s.hint }}</q-item-label>
             </q-item-section>
           </q-item>
         </q-list>
@@ -278,15 +262,15 @@ _INDEX_HTML = r"""<!doctype html>
         <template v-slot:avatar><q-icon name="error" /></template>
         {{ error }}
       </q-banner>
-      <q-page class="iframe-page">
-        <div class="iframe-host">
-          <iframe v-if="iframeSrc" :src="iframeSrc" class="iframe-fill"
+      <q-page class="window-height no-padding overflow-hidden">
+        <div class="relative-position full-width full-height">
+          <iframe v-if="iframeSrc" :src="iframeSrc" class="absolute-full full-width full-height no-border transparent"
                   id="frame" data-test="frame"></iframe>
-          <div v-else-if="busy" class="iframe-placeholder column items-center q-gutter-sm">
+          <div v-else-if="busy" class="absolute-full column items-center justify-center text-center q-pa-lg q-gutter-sm">
             <q-spinner color="primary" size="32px"></q-spinner>
             <div class="text-grey">{{ status }}</div>
           </div>
-          <div v-else class="iframe-placeholder text-grey">
+          <div v-else class="absolute-full column items-center justify-center text-center q-pa-lg text-grey">
             Pick a sample on the left to launch it.
           </div>
         </div>

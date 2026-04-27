@@ -25,7 +25,7 @@ def test_loader_is_idempotent_and_dedupes(gallery_server, page: Page) -> None:
 
     frame = page.frame_locator("[data-test='frame']")
     # Wait for the shell to finish its own initial loads.
-    frame.locator(".text-h4").wait_for(timeout=15_000)
+    frame.locator("h1").wait_for(timeout=15_000)
 
     # 1. Concurrent calls during first fetch must share one Promise.
     result = frame.locator("body").evaluate(

@@ -23,15 +23,14 @@ WebSocket session provided by the session framework (`llming-com`).**
 - One session per user. Not per tab, not per view, not per feature.
   The session is created by the host app (cookie-authed), and the SPA
   shell reuses it across every client-side navigation.
-- All reactive WebSocket commands are defined as `WSRouter` handlers
-  on the session's controller — not as ad-hoc REST endpoints or
+- All reactive WebSocket commands are defined as `SessionRouter` or
+  `AppRouter` handlers — not as ad-hoc REST endpoints or
   `fetch()` calls. The transport, heartbeat, reconnect, and
   session-loss detection are shared machinery — do not rebuild them.
-- Views subscribe to events by listening on the session's
-  `LlmingWebSocket` (loaded globally by the shell — see
-  [llming-com integration](llming-com.md)).
-- Server→client pushes go over the same socket. No Server-Sent Events,
-  no long-polling, no second WebSocket.
+- Views call Python with `this.$stage.send("router.handler", payload)`.
+  Python calls mounted Vue methods with `session.call("target.method", ...)`.
+- Server→client calls go over the same socket. No Server-Sent Events,
+  no long-polling, no app-level `onMessage` parser, no second WebSocket.
 
 Why: one session is what makes the app AI-debuggable. The session
 framework's debug API enumerates sessions, inspects state, and
@@ -76,7 +75,7 @@ Rules for any HTTP endpoint:
   framework sets. The endpoint must verify the HMAC-signed cookie
   before serving any authenticated content. No bearer tokens, no
   ad-hoc auth headers. If the session is invalid, return 401 — the
-  client's `LlmingWebSocket` will already have redirected on session
+  client's stage socket will already have redirected on session
   loss, so this is belt-and-braces.
 - **Idempotent or content-addressed.** Do not model reactive state
   transitions as POSTs. A POST that changes session state without
@@ -95,9 +94,7 @@ belongs on the WebSocket.
 **An llming-stage app that does not need server-side reactivity must
 be deployable as a purely static bundle** — GitHub Pages, S3, any CDN.
 
-This is the major differentiator from NiceGUI. NiceGUI requires a live
-Python server for every interaction; llming-stage does not. If a view
-is self-contained (renders from client-side data, calls only
+If a view is self-contained (renders from client-side data, calls only
 hash-cached HTTP GETs, does not need server-pushed events), the whole
 app should run from static files.
 
@@ -108,7 +105,7 @@ What "static deploy" means in practice:
 - Vendor JS, fonts, icon zips, locale packs — snapshot them into the
   static output directory at their `/_stage/...` URLs.
 - llming-com's `llming-ws.js` ships even in the static bundle. Views
-  that don't need a WebSocket simply never call `new LlmingWebSocket`.
+  that don't need a WebSocket simply never call `this.$stage.connect()`.
 - The SPA router runs entirely client-side; all routes resolve to the
   same `index.html` via the hosting platform's fallback rule
   (`404 → /index.html` on GitHub Pages, the built-in SPA fallback on
@@ -131,7 +128,7 @@ static-capable, the reactive views require the server.
 
 ```
 Is this a server-push or reactive interaction?
-├── Yes  → WSRouter handler + WebSocket
+├── Yes  → SessionRouter/AppRouter handler + WebSocket
 └── No   → Is this a large file or cache-friendly blob?
           ├── Yes  → HTTP GET/POST (cookie-authed)
           └── No   → Does this need any server state?
@@ -144,7 +141,7 @@ Is this a server-push or reactive interaction?
 - **Second WebSocket "because the first one is busy."** The single
   session is the source of truth. Back-pressure and queuing belong in
   llming-com, not in a parallel socket.
-- **REST endpoint that wraps a `WSRouter` handler.** If a reactive
+- **REST endpoint that wraps a router handler.** If a reactive
   command already exists, call it over the WebSocket. Do not expose
   the same logic as a POST "for convenience" — it bypasses the
   session framework's debug and session machinery.

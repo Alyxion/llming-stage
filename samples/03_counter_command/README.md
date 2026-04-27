@@ -6,8 +6,11 @@ and the UI updates only when the server pushes back.
 
 ## What to notice
 
-- Two `WSRouter` handlers: `counter.inc` and `counter.reset`. Both
-  read and mutate `controller.entry.state["count"]`.
+- Two `SessionRouter` handlers: `counter.inc` and `counter.reset`. The
+  increment handler receives a Pydantic `IncEvent` from the flat browser
+  payload and returns a Pydantic `CounterAck`.
+- Python updates the UI by calling the mounted Vue method directly:
+  `session.call("home.setCounter", value)`.
 - The reply is a *different* message type (`counter.update`) so the
   client renders from the pushed event, not from the request's direct
   response. This is the standard reactive pattern.
@@ -19,5 +22,5 @@ and the UI updates only when the server pushes back.
 
 ```bash
 poetry run python samples/03_counter_command/main.py
-open http://localhost:8080
+open http://localhost:8765
 ```

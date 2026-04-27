@@ -32,6 +32,13 @@ def test_quasar_css_is_served(client: TestClient) -> None:
     assert r.headers["content-type"].startswith("text/css")
 
 
+def test_tailwind_browser_bundle_is_served(client: TestClient) -> None:
+    r = client.get("/_stage/vendor/tailwindcss.browser.global.js")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/javascript")
+    assert "@tailwind utilities" in r.text
+
+
 def test_fonts_css_is_served(client: TestClient) -> None:
     r = client.get("/_stage/fonts/fonts.css")
     assert r.status_code == 200
@@ -89,6 +96,8 @@ def test_shell_is_served_at_root(client: TestClient) -> None:
     assert "<!doctype html>" in r.text
     assert "loader.js" in r.text
     assert "quasar.prod.css" in r.text
+    assert "tailwindcss.browser.global.js" in r.text
+    assert 'type="text/tailwindcss"' in r.text
 
 
 def test_shell_is_served_for_unknown_paths(client: TestClient) -> None:

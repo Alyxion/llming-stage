@@ -51,6 +51,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Installation: installation.md
+  - Stage apps: stage.md
   - App shell: shell.md
   - Communication model: communication-model.md
   - llming-com integration: llming-com.md

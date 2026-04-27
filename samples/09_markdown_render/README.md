@@ -18,5 +18,5 @@ is in the critical path. Clicking a button triggers a single
 
 ```bash
 poetry run python samples/09_markdown_render/main.py
-open http://localhost:8080
+open http://localhost:8765
 ```

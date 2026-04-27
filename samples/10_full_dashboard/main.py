@@ -5,9 +5,10 @@ in isolation:
 
 - Four views (``/``, ``/metric``, ``/uploads``, ``/chat``) sharing
   **one WebSocket session per user**.
-- Three :class:`WSRouter` namespaces (``metric``, ``uploads``,
+- Three :class:`SessionRouter` namespaces (``metric``, ``uploads``,
   ``chat``) composed onto the session's controller via
-  ``WSRouter.include(...)``.
+  ``SessionRouter.include(...)``.
+- One :class:`AppRouter` namespace (``admin``) for app-scoped broadcast.
 - One cookie-authed HTTP endpoint (``/api/upload``) for large file
   transfer — the only HTTP route apart from the shell/assets.
 - Plotly and KaTeX lazy-loaded on first use.
@@ -19,68 +20,61 @@ import asyncio
 import hashlib
 import math
 import random
-import sys
 import time
 from pathlib import Path
 
 from fastapi import HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
-from llming_com import BaseController
-from llming_com.ws_router import WSRouter
+from llming_com import AppRouter, BaseLlmingApp, SessionRouter
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _common import SampleSession, bootstrap, run  # noqa: E402
+from samples._common import SampleSession, bootstrap, run
 
 HERE = Path(__file__).resolve().parent
 
 # ---- metric router -------------------------------------------------------
-metric = WSRouter(prefix="metric")
+metric = SessionRouter(prefix="metric")
 
 
-async def _stream_metrics(controller: BaseController) -> None:
+async def _stream_metrics(session: SampleSession) -> None:
     t0 = time.monotonic()
-    while True:
+
+    async def sample() -> bool:
         t = time.monotonic() - t0
         value = math.sin(t / 2) + random.gauss(0, 0.1)
-        sent = await controller.send(
-            {"type": "metric.sample", "t": round(t, 3), "value": round(value, 4)}
+        return await session.call(
+            "metric.addMetricSample", round(t, 3), round(value, 4)
         )
-        if not sent:
-            return
-        await asyncio.sleep(0.5)
+
+    session.start_timer("metric_task", 0.5, sample)
 
 
 @metric.handler("start")
-async def metric_start(controller: BaseController) -> dict:
-    entry: SampleSession = controller.entry  # type: ignore[attr-defined]
-    task = entry.state.get("metric_task")
+async def metric_start(session: SampleSession) -> dict:
+    task = session.state.get("metric_task")
     if task and not task.done():
         return {"ok": True, "already_running": True}
-    entry.state["metric_task"] = asyncio.create_task(_stream_metrics(controller))
+    await _stream_metrics(session)
     return {"ok": True}
 
 
 @metric.handler("stop")
-async def metric_stop(controller: BaseController) -> dict:
-    entry: SampleSession = controller.entry  # type: ignore[attr-defined]
-    task = entry.state.get("metric_task")
-    if task and not task.done():
-        task.cancel()
+async def metric_stop(session: SampleSession) -> dict:
+    session.cancel_timer("metric_task")
     return {"ok": True}
 
 
 # ---- uploads router ------------------------------------------------------
-uploads = WSRouter(prefix="uploads")
+uploads = SessionRouter(prefix="uploads")
 
 
 @uploads.handler("list")
-async def uploads_list(controller: BaseController) -> dict:
-    entry: SampleSession = controller.entry  # type: ignore[attr-defined]
-    return {"items": entry.state.get("uploads", [])}
+async def uploads_list(session: SampleSession) -> dict:
+    await session.call("uploads.setUploads", session.state.get("uploads", []))
+    return {"ok": True}
 
 
 # ---- chat router ---------------------------------------------------------
-chat = WSRouter(prefix="chat")
+chat = SessionRouter(prefix="chat")
 
 _REPLIES = [
     "Welcome to the capstone. ",
@@ -91,33 +85,45 @@ _REPLIES = [
 
 
 @chat.handler("ask")
-async def chat_ask(controller: BaseController, text: str = "") -> dict:
-    entry: SampleSession = controller.entry  # type: ignore[attr-defined]
-    history = entry.state.setdefault("chat", [])
+async def chat_ask(session: SampleSession, text: str = "") -> dict:
+    history = session.state.setdefault("chat", [])
     history.append({"role": "user", "text": text})
     msg_id = len(history)
-    await controller.send({"type": "chat.start", "id": msg_id})
+    await session.call("chat.startReply", msg_id)
     collected = []
     for chunk in _REPLIES:
         await asyncio.sleep(0.25)
         collected.append(chunk)
-        await controller.send({"type": "chat.delta", "id": msg_id, "delta": chunk})
-    await controller.send({"type": "chat.done", "id": msg_id})
+        await session.call("chat.appendReply", msg_id, chunk)
+    await session.call("chat.finishReply", msg_id)
     history.append({"role": "assistant", "text": "".join(collected)})
     return {"ok": True}
 
 
 @chat.handler("history")
-async def chat_history(controller: BaseController) -> dict:
-    entry: SampleSession = controller.entry  # type: ignore[attr-defined]
-    return {"messages": entry.state.get("chat", [])}
+async def chat_history(session: SampleSession) -> dict:
+    await session.call("chat.setHistory", session.state.get("chat", []))
+    return {"ok": True}
 
 
 # ---- assemble ------------------------------------------------------------
-root = WSRouter()
+root = SessionRouter()
 root.include(metric)
 root.include(uploads)
 root.include(chat)
+
+
+# ---- app router ---------------------------------------------------------
+admin = AppRouter(prefix="admin")
+
+
+@admin.handler("broadcast")
+async def admin_broadcast(
+    app: BaseLlmingApp[SampleSession],
+    message: str = "Broadcast from the app router",
+) -> dict:
+    sent = await app.broadcast("home.setBroadcast", message)
+    return {"ok": True, "sent": sent}
 
 
 app, registry, auth = bootstrap(
@@ -129,15 +135,15 @@ app, registry, auth = bootstrap(
         ("/uploads", "uploads"),
         ("/chat", "chat"),
     ],
-    view_modules={
-        "home": "/app-static/home.js",
-        "metric": "/app-static/metric.js",
-        "uploads": "/app-static/uploads.js",
-        "chat": "/app-static/chat.js",
+    view_sources={
+        "home": "home.vue",
+        "metric": "metric.vue",
+        "uploads": "uploads.vue",
+        "chat": "chat.vue",
     },
-    preload_views=["home"],
-    static_dir=HERE / "static",
+    static_dir=HERE,
     ws_router=root,
+    app_router=admin,
 )
 
 
@@ -150,7 +156,6 @@ async def upload(request: Request, file: UploadFile) -> JSONResponse:
     if entry is None:
         raise HTTPException(status_code=401, detail="session not found")
 
-    controller = entry.controller
     hasher = hashlib.sha256()
     total = 0
     while True:
@@ -159,16 +164,12 @@ async def upload(request: Request, file: UploadFile) -> JSONResponse:
             break
         hasher.update(chunk)
         total += len(chunk)
-        if controller is not None:
-            await controller.send(
-                {"type": "upload.progress", "name": file.filename, "bytes": total}
-            )
+        await entry.call("uploads.setProgress", file.filename, total)
 
     digest = hasher.hexdigest()
     record = {"name": file.filename, "bytes": total, "sha256": digest}
     entry.state.setdefault("uploads", []).append(record)
-    if controller is not None:
-        await controller.send({"type": "upload.done", **record})
+    await entry.call("uploads.finishUpload", record)
     return JSONResponse(record)
 
 

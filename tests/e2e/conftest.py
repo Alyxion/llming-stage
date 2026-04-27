@@ -2,11 +2,11 @@
 
 Each test is parameterised over one sample directory. The fixture
 spawns ``python samples/<name>/main.py`` as a subprocess, waits for
-port 8080 to accept connections, and tears the process down after
+an assigned port to accept connections, and tears the process down after
 the test.
 
-Tests run sequentially on a single port so the samples can use their
-stock ``uvicorn.run(..., port=8080)`` configuration unchanged.
+Tests pass ``PORT`` explicitly so samples can keep their stock local
+development defaults unchanged.
 """
 
 from __future__ import annotations

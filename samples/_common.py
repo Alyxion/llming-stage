@@ -11,7 +11,7 @@ The shape every sample follows:
                                 fetches this on mount.
     POST /cmd/...             → llming-com HTTP command endpoints.
     WS   /ws/{session_id}     → llming-com WebSocket session.
-    GET  /app-static/*        → the sample's own view JS.
+    GET  /_stage/app/*.js     → view modules rendered from root-level .vue files.
 """
 
 from __future__ import annotations
@@ -24,11 +24,9 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 
-# Per-process version string appended to every view-module URL. Two
-# sample subprocesses started at different times on the same port would
-# otherwise collide on browser cache (``/app-static/home.js`` is the
-# same URL for every sample), and the second sample would run the
-# previous sample's view JS inside the iframe.
+# Per-process version string appended to legacy view-module URLs. New
+# samples use root-level .vue files through Stage; this remains for the
+# low-level compatibility path.
 _VIEW_VERSION = os.environ.get("STAGE_VIEW_VERSION", str(int(time.time() * 1000)))
 
 from fastapi import FastAPI, Request, WebSocket
@@ -36,6 +34,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from llming_com import (
     AuthManager,
+    BaseLlmingApp,
     BaseController,
     BaseSessionEntry,
     BaseSessionRegistry,
@@ -44,9 +43,9 @@ from llming_com import (
     command,
     run_websocket_session,
 )
-from llming_com.ws_router import WSRouter
+from llming_com.ws_router import AppRouter, SessionRouter
 
-from llming_stage import ShellConfig, mount_assets, mount_shell
+from llming_stage import ShellConfig, Stage, mount_assets, mount_shell
 
 
 @dataclass
@@ -66,12 +65,7 @@ class SampleRegistry(BaseSessionRegistry[SampleSession]):
 
 
 class SampleController(BaseController):
-    """Dispatches incoming messages to llming-com commands.
-
-    Override ``on_message`` in a subclass if a sample needs custom
-    dispatch. The default handles heartbeats and falls through to the
-    mounted command registry.
-    """
+    """Sample-specific controller hook point; dispatch is provided by llming-com."""
 
 
 def _with_version(url: str) -> str:
@@ -136,19 +130,25 @@ def bootstrap(
     app_name: str,
     title: str,
     routes: list[tuple[str, str]],
-    view_modules: dict[str, str],
-    static_dir: Path,
-    ws_router: WSRouter | None = None,
+    view_modules: dict[str, str] | None = None,
+    static_dir: Path | None = None,
+    view_sources: dict[str, str | Path] | None = None,
+    ws_router: SessionRouter | None = None,
+    app_router: AppRouter | None = None,
     preload_views: list[str] | None = None,
     on_connect_extra: Callable[[SampleSession, WebSocket], Awaitable[None]] | None = None,
+    on_disconnect_extra: Callable[[str, SampleSession], Awaitable[None]] | None = None,
 ) -> tuple[FastAPI, SampleRegistry, AuthManager]:
     """Build a FastAPI app wired for a llming-stage + llming-com sample.
 
-    *static_dir* is mounted at ``/app-static`` — every sample's view JS
-    lives there. *view_modules* maps logical view names (used in
-    *routes*) to their JS URLs under ``/app-static``.
+    Prefer *view_sources*: it maps logical view names (used in *routes*)
+    to root-relative ``.vue`` / ``.html`` / ``.js`` source files rendered
+    by :class:`llming_stage.Stage`.
 
-    *ws_router* is the root :class:`WSRouter` whose handlers are dispatched
+    *view_modules* + *static_dir* is kept only for compatibility tests
+    and lower-level integrations, not for normal samples.
+
+    *ws_router* is the root :class:`SessionRouter` whose handlers are dispatched
     for every message this session receives over its WebSocket. Pass
     ``None`` for samples that don't need reactive server-side logic.
     """
@@ -156,11 +156,8 @@ def bootstrap(
 
     app = FastAPI()
     registry = SampleRegistry.get()
+    llming_app = BaseLlmingApp(registry)
     auth = AuthManager(app_name=app_name)
-
-    mount_assets(app)
-
-    app.mount("/app-static", StaticFiles(directory=str(static_dir)), name="app-static")
 
     @app.get("/api/session")
     async def create_session(request: Request) -> JSONResponse:
@@ -186,12 +183,12 @@ def bootstrap(
         async def on_connect(entry: SampleSession, ws: WebSocket) -> None:
             controller = SampleController(session_id)
             controller.set_websocket(ws)
+            controller.attach_session(entry)
+            controller.attach_app(llming_app)
             if ws_router is not None:
-                controller.mount_router(ws_router)
-            entry.controller = controller
-            # Make the session entry reachable from every WSRouter handler
-            # via `controller.entry` (conventional access pattern).
-            controller.entry = entry  # type: ignore[attr-defined]
+                controller.mount_session_router(ws_router)
+            if app_router is not None:
+                controller.mount_app_router(app_router)
             await controller.send({"type": "welcome", "session_id": session_id})
             if on_connect_extra is not None:
                 await on_connect_extra(entry, ws)
@@ -201,12 +198,17 @@ def bootstrap(
                 return
             await entry.controller.handle_message(msg)
 
+        async def on_disconnect(sid: str, entry: SampleSession) -> None:
+            if on_disconnect_extra is not None:
+                await on_disconnect_extra(sid, entry)
+
         await run_websocket_session(
             websocket,
             session_id,
             registry,
             on_connect=on_connect,
             on_message=on_message,
+            on_disconnect=on_disconnect,
         )
 
     # Mount the command router so @command handlers (including the shared
@@ -215,14 +217,25 @@ def bootstrap(
     # /cmd/sessions/{sid}/debug.ws_dispatch without holding the socket.
     app.include_router(build_command_router(registry, prefix="/cmd"))
 
-    versioned = {name: _with_version(url) for name, url in view_modules.items()}
-    config = ShellConfig(
-        title=title,
-        routes=routes,
-        view_modules=versioned,
-        preload_views=preload_views or [],
-    )
-    mount_shell(app, config=config)
+    if view_sources is not None:
+        root = static_dir if static_dir is not None else Path.cwd()
+        stage = Stage(app, root=root, title=title)
+        by_name = dict(view_sources)
+        for route, view_name in routes:
+            stage.view(route, by_name[view_name], name=view_name)
+    else:
+        if view_modules is None or static_dir is None:
+            raise ValueError("bootstrap requires view_sources or view_modules + static_dir")
+        mount_assets(app)
+        app.mount("/app-static", StaticFiles(directory=str(static_dir)), name="app-static")
+        versioned = {name: _with_version(url) for name, url in view_modules.items()}
+        config = ShellConfig(
+            title=title,
+            routes=routes,
+            view_modules=versioned,
+            preload_views=preload_views or [],
+        )
+        mount_shell(app, config=config)
 
     return app, registry, auth
 
@@ -245,7 +258,7 @@ def run(
     """
     import uvicorn
 
-    resolved_port = port if port is not None else int(os.environ.get("PORT", "8080"))
+    resolved_port = port if port is not None else int(os.environ.get("PORT", "8765"))
     reload = os.environ.get("STAGE_RELOAD", "1") != "0"
 
     if not reload:

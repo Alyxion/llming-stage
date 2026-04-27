@@ -31,8 +31,8 @@ def test_gallery_launches_sample_into_iframe(gallery_server, page: Page) -> None
         "02_hello_world", timeout=20_000
     )
     expect(
-        page.frame_locator("[data-test='frame']").locator(".text-h4, .text-h5, .text-h3, .text-h2").first
-    ).to_contain_text("hello_world", timeout=15_000)
+        page.frame_locator("[data-test='frame']").locator("h1").first
+    ).to_contain_text("Hello world", timeout=15_000)
 
 
 def test_gallery_switches_between_samples(gallery_server, page: Page) -> None:
@@ -44,8 +44,8 @@ def test_gallery_switches_between_samples(gallery_server, page: Page) -> None:
         "02_hello_world", timeout=20_000
     )
     expect(
-        page.frame_locator("[data-test='frame']").locator(".text-h4, .text-h5, .text-h3, .text-h2").first
-    ).to_contain_text("hello_world", timeout=15_000)
+        page.frame_locator("[data-test='frame']").locator("h1").first
+    ).to_contain_text("Hello world", timeout=15_000)
 
     page.locator("[data-sample='03_counter_command']").click()
     expect(page.locator("[data-test='current']")).to_contain_text(
@@ -106,7 +106,7 @@ def test_sample_inherits_dark_mode(gallery_server, page: Page) -> None:
         "02_hello_world", timeout=20_000
     )
     frame = page.frame_locator("[data-test='frame']")
-    expect(frame.locator(".text-h4").first).to_contain_text("hello_world", timeout=15_000)
+    expect(frame.locator("h1").first).to_contain_text("Hello world", timeout=15_000)
     # Sample body must carry body--dark because the gallery defaults to dark.
     expect(frame.locator("body")).to_have_class(
         re.compile(r"\bbody--dark\b"), timeout=5_000

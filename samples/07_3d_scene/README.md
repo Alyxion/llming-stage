@@ -10,7 +10,7 @@ particles, rotation speed, height, radius, glow, and turbulence.
 
 ```bash
 poetry run python samples/07_3d_scene/main.py
-open http://localhost:8080
+open http://localhost:8765
 ```
 
 Drag to orbit, right-click-drag to pan, scroll to zoom.

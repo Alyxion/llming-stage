@@ -20,6 +20,7 @@ SAMPLES = [
     "01_static", "02_hello_world", "03_counter_command", "04_multi_view",
     "05_file_upload", "06_chat_stream", "07_3d_scene", "08_plotly_dashboard",
     "09_markdown_render", "10_full_dashboard", "11_plotly_advanced",
+    "12_extension_workbench", "13_basic_components",
 ]
 
 

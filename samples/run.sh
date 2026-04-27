@@ -4,5 +4,5 @@
 #
 # Env:
 #   GALLERY_PORT (default 8000)  — port the gallery listens on
-#   SAMPLE_PORT  (default 8080)  — port each sample is launched on
+#   SAMPLE_PORT  (default 8765)  — port each sample is launched on
 exec poetry run python "$(cd "$(dirname "$0")" && pwd)/gallery.py" "$@"

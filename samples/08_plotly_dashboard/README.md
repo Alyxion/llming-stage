@@ -11,5 +11,5 @@ Re-renders itself when the gallery toggles dark / light mode.
 
 ```bash
 poetry run python samples/08_plotly_dashboard/main.py
-open http://localhost:8080
+open http://localhost:8765
 ```

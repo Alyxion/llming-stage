@@ -46,6 +46,10 @@
   // free after the first time (single Map lookup, no allocation).
   const cache = new Map();   // name -> Promise<void>
   const loaded = new Set();  // public introspection: which names are ready
+  const components = new Map(); // target -> component stack
+  let sessionPromise = null;
+  let socketPromise = null;
+  let socket = null;
 
   function resolveUrl(rel) {
     // Absolute URLs and paths rooted at '/' are passed through untouched.
@@ -125,12 +129,108 @@
     registry[name] = entry;
   }
 
+  async function session(url = '/api/session') {
+    if (!sessionPromise) {
+      sessionPromise = fetch(url, { credentials: 'include' }).then((r) => {
+        if (!r.ok) throw new Error('llming-stage: session request failed');
+        return r.json();
+      });
+    }
+    return sessionPromise;
+  }
+
+  function registerComponent(target, component) {
+    if (!target || !component) return () => {};
+    const stack = components.get(target) || [];
+    if (stack.length) {
+      console.warn('[llming-stage] duplicate component target', target);
+    }
+    stack.push(component);
+    components.set(target, stack);
+    return () => {
+      const current = components.get(target) || [];
+      const next = current.filter((item) => item !== component);
+      if (next.length) components.set(target, next);
+      else components.delete(target);
+    };
+  }
+
+  function call(target, method, args = [], kwargs = {}) {
+    const stack = components.get(target);
+    if (!stack || !stack.length) {
+      console.warn('[llming-stage] no mounted target for', target);
+      return false;
+    }
+    let handled = false;
+    for (const component of stack.slice().reverse()) {
+      const fn = component && component[method];
+      if (typeof fn !== 'function') continue;
+      fn.apply(component, [...args, kwargs]);
+      handled = true;
+      break;
+    }
+    if (!handled) {
+      console.warn('[llming-stage] no mounted method for', target + '.' + method);
+    }
+    return handled;
+  }
+
+  function dispatch(msg) {
+    if (msg && msg.type === 'llming.call') {
+      let target = msg.target || '';
+      let method = msg.method || '';
+      if (!target && method.includes('.')) {
+        const parts = method.split('.');
+        method = parts.pop();
+        target = parts.join('.');
+      }
+      call(target, method, msg.args || [], msg.kwargs || {});
+      return;
+    }
+  }
+
+  async function connect(options = {}) {
+    if (socketPromise) return socketPromise;
+    socketPromise = session(options.sessionUrl).then(({ wsUrl }) => {
+      const onOpen = options.onOpen || null;
+      const onMessage = options.onMessage || null;
+      return new Promise((resolve) => {
+        socket = new window.LlmingWebSocket(wsUrl, {
+          ...options,
+          onOpen() {
+            if (onOpen) onOpen();
+            resolve(socket);
+          },
+          onMessage(message) {
+            dispatch(message);
+            if (onMessage) onMessage(message);
+          },
+        });
+        socket.connect();
+      });
+    });
+    return socketPromise;
+  }
+
+  async function send(type, payload = {}) {
+    const ws = socket || await connect();
+    ws.send({ type, ...payload });
+    return true;
+  }
+
   window.__stage = Object.freeze({
     base,
     load,
     isLoaded,
     register,
+    registerComponent,
+    session,
+    connect,
+    send,
+    call,
+    dispatch,
     loaded,
     registry,
+    get socket() { return socket; },
   });
 })();

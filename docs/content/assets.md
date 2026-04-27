@@ -2,14 +2,13 @@
 
 All assets are served under a single configurable prefix. The default
 prefix is `/_stage/`. The leading underscore signals framework-internal,
-avoids collision with app routes, and mirrors the convention from
-NiceGUI (`/_nicegui/`).
+avoids collision with app routes, and keeps app-owned routes clean.
 
 ## Route map
 
 | Path | Source | Content |
 |------|--------|---------|
-| `/_stage/vendor/*` | `llming_stage/vendor/` | Vue, Quasar, Three, Plotly, KaTeX, DOMPurify |
+| `/_stage/vendor/*` | `llming_stage/vendor/` | Vue, Quasar, Tailwind browser bundle, Three, Plotly, KaTeX, DOMPurify |
 | `/_stage/fonts/*` | `llming_stage/fonts/` | All bundled fonts — Roboto, Material Icons, Material Symbols, KaTeX (`fonts/katex/`) — and `fonts.css` |
 | `/_stage/lang/*` | `llming_stage/lang/` | 71 Quasar locale packs |
 | `/_stage/icons/*` | `llming_stage/assets/phosphor-icons.zip` | Phosphor Icons, 6 weights |
@@ -25,6 +24,17 @@ Each vendor file is referenced from `loader.js` (see
 [Lazy loading](lazy-loading.md)). The intent is that app code never
 hardcodes a `/_stage/vendor/foo.js` URL directly — instead, it calls
 `window.__stage.load('foo')` and lets the loader resolve the path.
+
+Vue, Quasar, and Tailwind are shell-level assets and load once on first
+visit. Tailwind is served locally as
+`/_stage/vendor/tailwindcss.browser.global.js` and the shell imports
+`tailwindcss/theme` + `tailwindcss/utilities`, not preflight, so it does
+not globally reset Quasar or host-app styles.
+
+The shell also defines Tailwind's `dark:` variant against Quasar's
+`body--dark` class. This keeps all theme behavior under one switch:
+`Quasar.Dark.set(...)` updates Quasar components and Tailwind dark
+utilities together.
 
 ## Fonts
 

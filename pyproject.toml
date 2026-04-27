@@ -32,9 +32,8 @@ include = [
 [tool.poetry.dependencies]
 python = ">=3.14,<4"
 starlette = ">=0.27"
-# Develop against the sibling checkout; `poetry build` resolves this to
-# the published PyPI version via the package's own version metadata.
-llming-com = {path = "../llming-com", develop = true}
+llming-com = ">=0.1.5,<0.2"
+uvicorn = {extras = ["standard"], version = ">=0.27"}
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0"
@@ -46,11 +45,12 @@ websockets = ">=12"
 mkdocs = ">=1.6"
 mkdocs-material = ">=9.5"
 fastapi = ">=0.100"
-uvicorn = {extras = ["standard"], version = ">=0.27"}
 python-multipart = ">=0.0.9"
+llming-com = {path = "../llming-com", develop = true}
 
 [tool.poetry.scripts]
 content-guard = "scripts.content_guard:main"
+llming-stage = "llming_stage.cli:main"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

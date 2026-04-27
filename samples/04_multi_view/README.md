@@ -6,11 +6,14 @@ server-side timer keeps ticking across the transition.
 
 ## What to notice
 
-- `_common.py` creates the session. The home view fetches it on first
-  mount and opens the socket, stored on `window.__sampleSocket`. The
-  timer view reuses that socket.
-- A tiny per-view listener registry (`window.__sampleListeners`)
-  handles routing pushes to whichever view is mounted.
+- Shared sample support creates the session. Both views call
+  `this.$stage.connect()`, which reuses one socket for the whole SPA.
+- Python pushes timer changes with direct Vue method calls:
+  `session.call("timer.setTimer", remaining)` and
+  `session.call("timer.finishTimer")`.
+- `home.vue` imports `NavDrawer.vue` and renders it with
+  `stage-id="drawer"`. Python can address that child component directly
+  with `session.call("drawer.open", message)`.
 - `data-stage-link` on `<a>` tags lets the SPA router intercept
   clicks.
 - Start the timer, click "Back home" mid-countdown, then click
@@ -21,5 +24,5 @@ server-side timer keeps ticking across the transition.
 
 ```bash
 poetry run python samples/04_multi_view/main.py
-open http://localhost:8080
+open http://localhost:8765
 ```

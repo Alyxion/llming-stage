@@ -12,35 +12,31 @@ This is the canonical "HTTP for bulk, WS for reactive" split.
 from __future__ import annotations
 
 import hashlib
-import sys
 from pathlib import Path
 
 from fastapi import HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
-from llming_com import BaseController
-from llming_com.ws_router import WSRouter
+from llming_com import SessionRouter
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _common import SampleSession, bootstrap, run  # noqa: E402
+from samples._common import SampleSession, bootstrap, run
 
 HERE = Path(__file__).resolve().parent
 
-ws = WSRouter(prefix="uploads")
+ws = SessionRouter(prefix="uploads")
 
 
 @ws.handler("list")
-async def list_uploads(controller: BaseController) -> dict:
-    entry: SampleSession = controller.entry  # type: ignore[attr-defined]
-    return {"items": entry.state.get("uploads", [])}
+async def list_uploads(session: SampleSession) -> dict:
+    await session.call("home.setUploads", session.state.get("uploads", []))
+    return {"ok": True}
 
 
 app, registry, auth = bootstrap(
     app_name="sample05",
     title="Sample 05 — File upload",
     routes=[("/", "home")],
-    view_modules={"home": "/app-static/home.js"},
-    preload_views=["home"],
-    static_dir=HERE / "static",
+    view_sources={"home": "home.vue"},
+    static_dir=HERE,
     ws_router=ws,
 )
 
@@ -59,7 +55,6 @@ async def upload(request: Request, file: UploadFile) -> JSONResponse:
     if entry is None:
         raise HTTPException(status_code=401, detail="session not found")
 
-    controller = entry.controller
     hasher = hashlib.sha256()
     total = 0
     while True:
@@ -68,17 +63,13 @@ async def upload(request: Request, file: UploadFile) -> JSONResponse:
             break
         hasher.update(chunk)
         total += len(chunk)
-        if controller is not None:
-            await controller.send(
-                {"type": "upload.progress", "name": file.filename, "bytes": total}
-            )
+        await entry.call("home.setProgress", file.filename, total)
 
     digest = hasher.hexdigest()
     record = {"name": file.filename, "bytes": total, "sha256": digest}
     uploads = entry.state.setdefault("uploads", [])
     uploads.append(record)
-    if controller is not None:
-        await controller.send({"type": "upload.done", **record})
+    await entry.call("home.finishUpload", record)
     return JSONResponse(record)
 
 

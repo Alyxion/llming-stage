@@ -17,6 +17,7 @@ from starlette.responses import HTMLResponse, Response
 from starlette.routing import Route
 
 from .asset_server import make_dir_handler
+from .dev_reload import dev_reload_head
 from .zip_server import ZipArchive, make_zip_handler
 
 _PACKAGE_ROOT = Path(__file__).resolve().parent
@@ -69,6 +70,8 @@ class ShellConfig:
         extra_body: Raw HTML inserted at the end of ``<body>``.
         preload_views: View module names to preload after the shell boots
             (useful for the default landing view).
+        dev_reload: Include the development reload client script.
+        dev_reload_prefix: URL prefix passed to :func:`mount_dev_reload`.
     """
 
     title: str = "llming"
@@ -78,6 +81,8 @@ class ShellConfig:
     extra_head: str = ""
     extra_body: str = ""
     preload_views: list[str] = field(default_factory=list)
+    dev_reload: bool = False
+    dev_reload_prefix: str = "/_stage/dev"
 
 
 def render_shell(config: ShellConfig) -> str:
@@ -95,6 +100,7 @@ def render_shell(config: ShellConfig) -> str:
         f"  window.__stage.load({_js_str(v)}).catch((e) => console.error(e));"
         for v in config.preload_views
     )
+    dev_reload_html = dev_reload_head(config.dev_reload_prefix) if config.dev_reload else ""
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -104,6 +110,11 @@ def render_shell(config: ShellConfig) -> str:
 <link rel="stylesheet" href="{prefix}/fonts/fonts.css">
 <link rel="stylesheet" href="{prefix}/vendor/quasar.prod.css">
 <script>window.__stageBase = {_js_str(prefix)};</script>
+<style type="text/tailwindcss">
+@import "tailwindcss/theme";
+@import "tailwindcss/utilities";
+@custom-variant dark (&:where(.body--dark, .body--dark *));
+</style>
 <script type="importmap">
 {{
   "imports": {{
@@ -113,6 +124,7 @@ def render_shell(config: ShellConfig) -> str:
 }}
 </script>
 {config.extra_head}
+{dev_reload_html}
 </head>
 <body>
 <div id="app-shell">
@@ -120,6 +132,7 @@ def render_shell(config: ShellConfig) -> str:
 </div>
 <script src="{prefix}/vendor/vue.global.prod.js"></script>
 <script src="{prefix}/vendor/quasar.umd.prod.js"></script>
+<script src="{prefix}/vendor/tailwindcss.browser.global.js"></script>
 <script>
 // Dark-mode bootstrap. Precedence:
 //   1. `?stage_dark=1` / `?stage_dark=0` query param (host app / gallery).

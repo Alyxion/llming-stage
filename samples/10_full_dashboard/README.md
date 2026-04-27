@@ -15,15 +15,16 @@ the chat history, live chart state, and upload list all survive.
 
 ## What to notice
 
-- Three `WSRouter` namespaces (`metric`, `uploads`, `chat`) are
+- Three `SessionRouter` namespaces (`metric`, `uploads`, `chat`) are
   composed onto a single root router via `root.include(...)`. That
   root is passed to `bootstrap(..., ws_router=root)` and mounted on
   the controller at connect time. Same compose-and-mount pattern
   production llming apps use.
-- The home view owns a tiny shared-socket helper
-  (`window.__ensureAppSocket`) and a listener registry. Other views
-  push their message handlers into that registry on mount and pop
-  them on unmount.
+- An `AppRouter` namespace (`admin`) demonstrates app-scoped handlers:
+  it receives `app`, then broadcasts to mounted Vue method targets.
+- Views call `this.$stage.connect()` and expose normal Vue `methods`.
+  Python reaches those methods with addressed calls such as
+  `session.call("metric.addMetricSample", t, value)`.
 - `/api/upload` is the only HTTP route. It uses the auth cookie
   that `/api/session` set, looks up the session entry, and pushes
   progress events back over **that session's** WebSocket — honouring
@@ -35,12 +36,12 @@ the chat history, live chart state, and upload list all survive.
 
 ```bash
 poetry run python samples/10_full_dashboard/main.py
-open http://localhost:8080
+open http://localhost:8765
 ```
 
 ## AI debugging
 
-Because every reactive command is a WSRouter handler on the
+Because every reactive command is a router handler on the
 shared controller, an AI agent can list and invoke them via the
 llming-com debug API — and watch the live UI react. See the
 [communication model](../../docs/content/communication-model.md) for the

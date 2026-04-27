@@ -8,5 +8,5 @@ exists only to serve files.
 
 ```bash
 poetry run python samples/01_static/main.py
-open http://localhost:8080
+open http://localhost:8765
 ```

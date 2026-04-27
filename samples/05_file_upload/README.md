@@ -17,9 +17,9 @@ rules:
   cookie-authed HTTP joins the session model.
 - Upload chunks are hashed in memory (no disk write — matches the
   no-disk-I/O convention used elsewhere in the llming ecosystem).
-- `upload.progress` + `upload.done` pushes go through
-  `entry.controller.send(...)` on the *same* socket the browser opened
-  via `/api/session`.
+- Upload progress and completion call mounted Vue methods via
+  `entry.call("home.setProgress", ...)` and `entry.call("home.finishUpload", ...)`
+  on the same socket the browser opened via `/api/session`.
 - `uploads.list` is a plain reactive WS command that reads server-held
   history.
 
@@ -27,5 +27,5 @@ rules:
 
 ```bash
 poetry run python samples/05_file_upload/main.py
-open http://localhost:8080
+open http://localhost:8765
 ```

@@ -32,7 +32,8 @@ flowchart LR
 ### What you get
 
 - **An AI-debuggable runtime** — every reactive command, session, and event is browseable, invokable, and observable through one HTTP / MCP surface.
-- **Modern frontend, zero boilerplate** — Vue 3 + Quasar 2 with a lazy-load orchestrator and an SPA router that keeps the WebSocket and view state alive across navigations.
+- **FastAPI-native app mounting** — create your own `FastAPI()` app and attach `Stage(app)`. The internal `/_stage` routes and development reload are ensured once.
+- **Modern frontend, zero boilerplate** — Vue 3 + Quasar 2 + bundled Tailwind utilities with a lazy-load orchestrator and an SPA router that keeps the WebSocket and view state alive across navigations.
 - **Per-user sessions out of the box** — `llming-com` runs the wire and the auth; you write JS views and Python handlers.
 - **Static-deployable** — when there's no server-side reactivity at runtime, the same code ships to GitHub Pages, S3, or any CDN.
 - **No third-party network** — every asset is vendored. A page loaded from an `llming-stage` app makes zero requests to Google Fonts, jsDelivr, or any other external host. Privacy/GDPR-friendly by default; enforced by static and runtime tests.
@@ -46,35 +47,53 @@ poetry install
 ./samples/run.sh        # opens a web gallery at http://localhost:8000
 ```
 
-Ten sample apps — from a one-line "hello" to a Three.js particle tornado and an 8-chart ECharts dashboard — with dark/light theme, hot reload, and AI-debug control.
+Thirteen sample apps — from a tiny static app to llming-com reactive loops, a Three.js particle tornado, an 8-chart ECharts dashboard, Plotly full-bundle charts, a core component workbench, and an optional-extension workbench — with dark/light theme, hot reload, and AI-debug control.
 
 ---
 
 ### Minimal app
 
 ```python
-from starlette.applications import Starlette
-from llming_com import BaseSessionRegistry, run_websocket_session
-from llming_stage import mount_assets, mount_shell, ShellConfig
+from fastapi import FastAPI
+from llming_stage import Stage
 
-app = Starlette()
-mount_assets(app)
-
-@app.websocket("/ws/{session_id}")
-async def ws(websocket, session_id: str):
-    await run_websocket_session(
-        websocket, session_id, BaseSessionRegistry.get(),
-        on_message=lambda entry, msg: entry.controller.handle_message(msg),
-    )
-
-mount_shell(app, config=ShellConfig(
-    title="My App",
-    routes=[("/", "home"), ("/chat", "chat")],
-    preload_views=["home"],
-))
+app = FastAPI()
+Stage(app).view("/", "home.vue")
 ```
 
-The browser gets a real Vue + Quasar SPA; the view modules are JavaScript. `llming-com` carries the wire, the sessions, and the debug surface the AI uses.
+```vue
+<template>
+  <main class="min-h-screen grid place-items-center p-8">
+    <h1 class="text-5xl font-bold">Hello llming-stage</h1>
+  </main>
+</template>
+```
+
+`Stage(app)` mounts the bundled assets, the Vue + Quasar shell, the SPA
+router, bundled Tailwind utilities, and content-hash development reload
+by default.
+
+Reactive apps add a typed session router and let Stage mount the
+conventional session routes:
+
+```python
+from llming_com import SessionRouter
+
+counter = SessionRouter(prefix="counter")
+
+@counter.handler("inc")
+async def inc(session, by: int = 1):
+    value = int(session.state.get("count", 0)) + by
+    session.state["count"] = value
+    await session.call("home.setCounter", value)
+    return {"ok": True}
+
+Stage(app).session(session_router=counter).view("/", "home.vue")
+```
+
+The browser gets a real Vue + Quasar SPA from `.vue` view files.
+`llming-com` carries the wire, the sessions, and the debug surface the
+AI uses.
 
 ---
 
@@ -82,7 +101,7 @@ The browser gets a real Vue + Quasar SPA; the view modules are JavaScript. `llmi
 
 Full docs in [`docs/content/`](docs/content):
 
-- [Quick start](docs/content/installation.md) · [App shell](docs/content/shell.md) · [Communication model](docs/content/communication-model.md)
+- [Quick start](docs/content/installation.md) · [Stage apps](docs/content/stage.md) · [App shell](docs/content/shell.md) · [Communication model](docs/content/communication-model.md)
 - [llming-com integration](docs/content/llming-com.md) · [Assets & lazy loading](docs/content/lazy-loading.md)
 - [Security](docs/content/security.md) · [API reference](docs/content/api.md)
 

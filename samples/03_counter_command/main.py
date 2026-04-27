@@ -8,43 +8,47 @@ inspectable through the debug API.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-from llming_com import BaseController
-from llming_com.ws_router import WSRouter
+from llming_com import SessionRouter
+from pydantic import BaseModel
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from _common import SampleSession, bootstrap, run  # noqa: E402
+from samples._common import SampleSession, bootstrap, run
 
 HERE = Path(__file__).resolve().parent
 
-ws = WSRouter(prefix="counter")
+ws = SessionRouter(prefix="counter")
+
+
+class IncEvent(BaseModel):
+    by: int = 1
+
+
+class CounterAck(BaseModel):
+    ok: bool
+    value: int
 
 
 @ws.handler("inc")
-async def inc(controller: BaseController, by: int = 1) -> dict:
-    entry: SampleSession = controller.entry  # type: ignore[attr-defined]
-    entry.state["count"] = int(entry.state.get("count", 0)) + int(by)
-    await controller.send({"type": "counter.update", "value": entry.state["count"]})
-    return {"ok": True}
+async def inc(session: SampleSession, event: IncEvent) -> CounterAck:
+    session.state["count"] = int(session.state.get("count", 0)) + event.by
+    await session.call("home.setCounter", session.state["count"])
+    return CounterAck(ok=True, value=session.state["count"])
 
 
 @ws.handler("reset")
-async def reset(controller: BaseController) -> dict:
-    entry: SampleSession = controller.entry  # type: ignore[attr-defined]
-    entry.state["count"] = 0
-    await controller.send({"type": "counter.update", "value": 0})
-    return {"ok": True}
+async def reset(session: SampleSession) -> CounterAck:
+    session.state["count"] = 0
+    await session.call("home.setCounter", 0)
+    return CounterAck(ok=True, value=0)
 
 
 app, registry, auth = bootstrap(
     app_name="sample03",
     title="Sample 03 — Counter",
     routes=[("/", "home")],
-    view_modules={"home": "/app-static/home.js"},
-    preload_views=["home"],
-    static_dir=HERE / "static",
+    view_sources={"home": "home.vue"},
+    static_dir=HERE,
     ws_router=ws,
 )
 

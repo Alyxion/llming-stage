@@ -14,12 +14,12 @@ delta as a partial update rather than waiting for a complete reply.
   independently.
 - History lives on `SampleSession.state["chat"]` — inspect from a
   server console at any time.
-- No REST, no SSE: one socket, three event types, plain
-  `controller.send(...)`.
+- No REST, no SSE: one socket and direct Vue method calls such as
+  `session.call("home.appendReply", id, chunk)`.
 
 ## Run
 
 ```bash
 poetry run python samples/06_chat_stream/main.py
-open http://localhost:8080
+open http://localhost:8765
 ```

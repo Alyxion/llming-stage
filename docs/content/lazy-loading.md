@@ -34,21 +34,36 @@ The loader ships with these components pre-registered:
 |------|--------------------------|
 | `katex` | First `$…$` or `$$…$$` rendered |
 | `mermaid` | First ```mermaid fenced block rendered |
+| `marked` | First Markdown document parsed |
 | `dompurify` | First untrusted HTML sanitized |
 | `three` | First 3D scene created |
-| `plotly` | First chart drawn |
+| `three/controls` | First orbit-controlled 3D scene created |
+| `plotly` | First basic Plotly chart drawn |
+| `plotly/full` | First full-bundle Plotly chart drawn |
+| `echarts` | First ECharts dashboard drawn |
+| `drawflow` | First node-graph editor mounted |
+| `xterm` | First terminal emulator mounted |
+| `xterm/fit` | First terminal autosize addon used |
+| `xterm/web-links` | First terminal web-links addon used |
+| `xterm/webgl` | First terminal WebGL renderer used |
+| `codemirror` | First CodeMirror 5 editor mounted |
 
 The library does not trigger these itself; app code decides *when* to
-call `load()`.
+call `load()`. The `samples/12_extension_workbench` app exercises the
+full optional extension list end-to-end.
 
 ## Registering custom components
 
 Any app may add its own registrations:
 
 ```js
-window.__stage.register('xlsx', { js: 'vendor/xlsx.full.min.js' });
+window.__stage.register('app-panel', { js: '/_stage/app/panel.js' });
 window.__stage.register('my-view', { js: 'views/my-view.js' });
 ```
+
+Register only assets your app serves locally. Do not register CDN URLs
+or document-format libraries that belong in the separate document
+handling package.
 
 `register()` accepts:
 
