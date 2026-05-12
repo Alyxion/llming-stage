@@ -1,5 +1,5 @@
 <template>
-  <main class="min-h-screen bg-slate-950 text-slate-100 p-6 md:p-10">
+  <main class="min-h-screen bg-slate-50 text-slate-900 p-6 md:p-10 dark:bg-slate-950 dark:text-slate-100">
     <section class="mx-auto max-w-6xl space-y-6">
       <header class="rounded-[2rem] bg-gradient-to-br from-cyan-300 via-sky-500 to-slate-900 p-8 shadow-2xl">
         <p class="text-xs uppercase tracking-[0.35em] text-slate-900/70">sample 13</p>
@@ -10,7 +10,7 @@
       </header>
 
       <div class="grid gap-6 lg:grid-cols-3">
-        <q-card flat bordered class="rounded-3xl bg-white text-slate-900 shadow-xl">
+        <q-card flat bordered class="rounded-3xl bg-[#ffffff] text-slate-900 shadow-xl dark:bg-slate-900 dark:text-slate-100">
           <q-card-section class="space-y-4">
             <div>
               <p class="text-xs uppercase tracking-[0.25em] text-slate-500">forms</p>
@@ -29,7 +29,7 @@
           </q-card-section>
         </q-card>
 
-        <q-card flat bordered class="rounded-3xl bg-white text-slate-900 shadow-xl">
+        <q-card flat bordered class="rounded-3xl bg-[#ffffff] text-slate-900 shadow-xl dark:bg-slate-900 dark:text-slate-100">
           <q-card-section class="space-y-4">
             <div>
               <p class="text-xs uppercase tracking-[0.25em] text-slate-500">actions</p>
@@ -49,13 +49,13 @@
               </q-btn>
             </div>
             <q-linear-progress rounded size="14px" :value="confidence / 100" color="cyan" />
-            <q-banner rounded class="bg-slate-100 text-slate-700">
+            <q-banner rounded class="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
               {{ summary }}
             </q-banner>
           </q-card-section>
         </q-card>
 
-        <q-card flat bordered class="rounded-3xl bg-white text-slate-900 shadow-xl">
+        <q-card flat bordered class="rounded-3xl bg-[#ffffff] text-slate-900 shadow-xl dark:bg-slate-900 dark:text-slate-100">
           <q-tabs v-model="tab" dense active-color="primary" indicator-color="primary">
             <q-tab name="table" label="Table" />
             <q-tab name="tree" label="Tree" />

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import re
 import shutil
 import uuid
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -37,8 +39,90 @@ _VIEW_EXTENSIONS = {".vue", ".js", ".html", ".htm"}
 class _View:
     route: str
     name: str
-    source: Path
+    source: Path | Callable[[], Any]
     module_url: str
+
+
+class VueResponse(Response):
+    """Response type for generated Vue views.
+
+    Use ``template``/``script``/``style`` for split inline parts, or the
+    corresponding ``*_path`` arguments for files relative to the decorated
+    Python module. The positional ``content`` form accepts complete Vue
+    source and is kept for small one-piece views.
+    """
+
+    media_type = "text/x-vue"
+
+    def __init__(
+        self,
+        content: str | None = None,
+        *,
+        template: str | None = None,
+        template_path: str | Path | None = None,
+        script: str | None = None,
+        script_path: str | Path | None = None,
+        style: str | None = None,
+        style_path: str | Path | None = None,
+        status_code: int = 200,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        parts = [content is not None, template is not None, template_path is not None]
+        if sum(parts) != 1:
+            raise ValueError(
+                "VueResponse requires exactly one of content, template, or template_path"
+            )
+        if script is not None and script_path is not None:
+            raise ValueError("VueResponse accepts script or script_path, not both")
+        if style is not None and style_path is not None:
+            raise ValueError("VueResponse accepts style or style_path, not both")
+        if content is not None and any(
+            value is not None for value in (script, script_path, style, style_path)
+        ):
+            raise ValueError(
+                "VueResponse content is a complete Vue source; use template/template_path "
+                "when adding script or style separately"
+            )
+        self.template_path = Path(template_path) if template_path is not None else None
+        self.script_path = Path(script_path) if script_path is not None else None
+        self.style_path = Path(style_path) if style_path is not None else None
+        source = content if content is not None else _compose_vue_source(template, script, style)
+        super().__init__(
+            content=source,
+            status_code=status_code,
+            headers=headers,
+            media_type=self.media_type,
+        )
+
+    def resolve_source(self, base: Path) -> str:
+        source = self.body.decode(self.charset or "utf-8").strip()
+        if self.template_path is not None:
+            template = _read_response_part(self.template_path, base, "template")
+            script = (
+                _read_response_part(self.script_path, base, "script")
+                if self.script_path is not None
+                else _extract_block(source, "script") or None
+            )
+            style = (
+                _read_response_part(self.style_path, base, "style")
+                if self.style_path is not None
+                else _extract_block(source, "style") or None
+            )
+            return _compose_vue_source(template, script, style)
+        if self.script_path is not None or self.style_path is not None:
+            template = _extract_block(source, "template") or source
+            script = (
+                _read_response_part(self.script_path, base, "script")
+                if self.script_path is not None
+                else _extract_block(source, "script") or None
+            )
+            style = (
+                _read_response_part(self.style_path, base, "style")
+                if self.style_path is not None
+                else _extract_block(source, "style") or None
+            )
+            return _compose_vue_source(template, script, style)
+        return source
 
 
 class StageSession:
@@ -78,6 +162,10 @@ class StageSession:
 
     def router(self, prefix: str) -> Any:
         """Create and mount a session-scoped router namespace."""
+        return self.add_router(prefix)
+
+    def add_router(self, prefix: str) -> Any:
+        """Create and mount a session-scoped router namespace."""
         from llming_com import SessionRouter
 
         child = SessionRouter(prefix=prefix)
@@ -85,6 +173,10 @@ class StageSession:
         return child
 
     def app_router(self, prefix: str) -> Any:
+        """Create and mount an application-scoped router namespace."""
+        return self.add_app_router(prefix)
+
+    def add_app_router(self, prefix: str) -> Any:
         """Create and mount an application-scoped router namespace."""
         from llming_com import AppRouter
 
@@ -162,6 +254,73 @@ class StageSession:
         self.stage.app.include_router(
             build_command_router(self.registry, prefix=self.command_prefix)
         )
+        prefix = self.command_prefix.rstrip("/")
+
+        async def debug_state(request: Request) -> JSONResponse:
+            session_id = request.path_params["session_id"]
+            session = self.registry.get_session(session_id)
+            if session is None:
+                raise HTTPException(status_code=404, detail="session not found")
+            return JSONResponse(
+                {
+                    "state": _jsonable(getattr(session, "state", {})),
+                    "controller_ready": getattr(session, "controller", None) is not None,
+                }
+            )
+
+        async def debug_ws_dispatch(request: Request) -> JSONResponse:
+            session_id = request.path_params["session_id"]
+            session = self.registry.get_session(session_id)
+            if session is None:
+                raise HTTPException(status_code=404, detail="session not found")
+            controller = getattr(session, "controller", None)
+            if controller is None:
+                return JSONResponse({"ok": False, "error": "no active controller"})
+            body = await request.json()
+            msg = body.get("msg", body)
+            await controller.handle_message(msg)
+            return JSONResponse({"ok": True, "dispatched": msg.get("type", "")})
+
+        self.stage._insert_before_shell(
+            Route(f"{prefix}/sessions/{{session_id}}/debug.state", debug_state)
+        )
+        self.stage._insert_before_shell(
+            Route(
+                f"{prefix}/sessions/{{session_id}}/debug.ws_dispatch",
+                debug_ws_dispatch,
+                methods=["POST"],
+            )
+        )
+
+
+def _jsonable(value: Any) -> Any:
+    """Best-effort conversion of session state into JSON-safe values."""
+
+    if isinstance(value, dict):
+        return {k: _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return f"<{type(value).__name__}>"
+
+
+def _create_fastapi_app(*, title: str, kwargs: dict[str, Any]) -> Any:
+    try:
+        from fastapi import FastAPI
+    except ImportError as exc:
+        raise RuntimeError(
+            "Stage() without an app requires FastAPI. Pass an existing ASGI app "
+            "or install fastapi."
+        ) from exc
+    signature = inspect.signature(FastAPI)
+    invalid = sorted(k for k in kwargs if k not in signature.parameters)
+    if invalid:
+        names = ", ".join(invalid)
+        raise TypeError(f"unknown FastAPI keyword argument(s): {names}")
+    fastapi_kwargs = dict(kwargs)
+    fastapi_kwargs.setdefault("title", title)
+    return FastAPI(**fastapi_kwargs)
 
 
 class Stage:
@@ -174,17 +333,27 @@ class Stage:
 
     def __init__(
         self,
-        app: Any,
+        app: Any | None = None,
         *,
         title: str = "llming",
         root: str | Path | None = None,
         asset_prefix: str = "/_stage",
         dev: bool = True,
         dev_reload: bool | None = None,
+        **fastapi_kwargs: Any,
     ) -> None:
+        if app is None:
+            app = _create_fastapi_app(title=title, kwargs=fastapi_kwargs)
+        elif fastapi_kwargs:
+            names = ", ".join(sorted(fastapi_kwargs))
+            raise TypeError(f"FastAPI keyword arguments require Stage() without app: {names}")
         self.app = app
         self.title = title
-        root_path = Path(root).resolve() if root is not None else Path.cwd().resolve()
+        if root is None:
+            caller = inspect.stack()[1].filename
+            root_path = Path(caller).resolve().parent
+        else:
+            root_path = Path(root).resolve()
         self.root = root_path.parent if root_path.is_file() else root_path
         self.asset_prefix = asset_prefix.rstrip("/")
         self.dev = dev if dev_reload is None else dev_reload
@@ -198,19 +367,68 @@ class Stage:
         if state is not None:
             setattr(state, "llming_stage_instance", self)
 
-    def view(self, route: str, source: str | Path, *, name: str | None = None) -> "Stage":
-        """Register one view and make it available to the SPA router."""
+    def add_view(
+        self,
+        route: str,
+        source: str | Path,
+        *,
+        name: str | None = None,
+    ) -> "Stage":
+        """Register one view and make it available to the SPA router.
 
+        The source filename is explicit by design: decorators and active
+        registration should stay visually distinct.
+        """
+
+        self._register_view(route, source, name=name)
+        return self
+
+    def view(
+        self,
+        route: str,
+        *,
+        name: str | None = None,
+    ) -> Callable[[Callable[[], Response]], Callable[[], Response]]:
+        """Decorator for registering a generated view.
+
+        The decorated function must return a response object. Use
+        ``VueResponse`` for generated Vue views or ``HTMLResponse`` for
+        static generated HTML. Returning ``None`` is invalid because a view
+        route must produce page content.
+        """
+
+        def decorator(func: Callable[[], Response]) -> Callable[[], Response]:
+            self._register_view(route, func, name=name)
+            return func
+
+        return decorator
+
+    def _register_view(
+        self,
+        route: str,
+        source: str | Path | Callable[[], Any],
+        *,
+        name: str | None = None,
+    ) -> None:
         route = _normalize_route(route)
-        source_path = self._resolve_source(source)
-        view_name = name or _name_for_route(route, source_path)
+        if callable(source):
+            resolved_source = source
+            fallback = Path(getattr(source, "__name__", "view"))
+        else:
+            resolved_source = self._resolve_source(source)
+            fallback = resolved_source
+        view_name = name or _name_for_route(route, fallback)
         module_url = f"{self.asset_prefix}/app/{view_name}.js"
-        view = _View(route=route, name=view_name, source=source_path, module_url=module_url)
+        view = _View(
+            route=route,
+            name=view_name,
+            source=resolved_source,
+            module_url=module_url,
+        )
         self._views = [v for v in self._views if v.route != route and v.name != view_name]
         self._views.append(view)
         self._insert_before_shell(Route(module_url, self._make_view_handler(view)))
         self._ensure_shell()
-        return self
 
     def discover(self, views_dir: str | Path = "views") -> "Stage":
         """Register all view files under ``views_dir`` by convention."""
@@ -220,7 +438,7 @@ class Stage:
             raise FileNotFoundError(f"view directory not found: {base}")
         for path in sorted(base.rglob("*")):
             if path.is_file() and path.suffix.lower() in _VIEW_EXTENSIONS:
-                self.view(_route_for_discovered_view(base, path), path)
+                self.add_view(_route_for_discovered_view(base, path), path)
         return self
 
     def session(
@@ -298,7 +516,13 @@ class Stage:
         reload: bool | None = None,
         app_import: str = "main:app",
     ) -> None:
-        """Run the app with uvicorn for local development."""
+        """Run the app with uvicorn using the same defaults samples show.
+
+        This is intentionally a thin local-development convenience, not a
+        separate server abstraction. For production, custom workers, TLS,
+        logging, or process management, call uvicorn or another ASGI server
+        directly.
+        """
 
         import uvicorn
 
@@ -417,7 +641,9 @@ class Stage:
             )
 
 
-def _render_view_module(name: str, source: Path) -> str:
+def _render_view_module(name: str, source: Path | Callable[[], Any]) -> str:
+    if callable(source):
+        return _render_generated_view(name, source)
     if not source.is_file():
         raise FileNotFoundError(f"view source not found: {source}")
     suffix = source.suffix.lower()
@@ -429,6 +655,67 @@ def _render_view_module(name: str, source: Path) -> str:
     if suffix == ".js":
         return text
     raise ValueError(f"unsupported view extension: {source.suffix}")
+
+
+def _render_generated_view(name: str, func: Callable[[], Any]) -> str:
+    result = func()
+    if result is None:
+        raise ValueError(
+            f"stage view function {func.__name__!r} returned None; "
+            "return a VueResponse or HTMLResponse"
+        )
+    if not isinstance(result, Response):
+        raise TypeError(
+            f"stage view function {func.__name__!r} returned "
+            f"{type(result).__name__}; expected a Starlette Response"
+        )
+    body = getattr(result, "body", b"")
+    if not isinstance(body, bytes):
+        raise TypeError(
+            f"stage view function {func.__name__!r} returned "
+            f"{type(result).__name__} without a concrete response body"
+        )
+    charset = getattr(result, "charset", "utf-8") or "utf-8"
+    text = body.decode(charset).strip()
+    media_type = (getattr(result, "media_type", None) or "").split(";", 1)[0]
+    if media_type in {"text/x-vue", "application/vnd.llming-stage.vue"}:
+        if isinstance(result, VueResponse):
+            func_file = inspect.getsourcefile(func)
+            base = Path(func_file).resolve().parent if func_file else Path.cwd()
+            text = result.resolve_source(base)
+        return _render_vue(name, Path(f"{name}.vue"), _normalize_vue_response(text))
+    if media_type and media_type != "text/html":
+        raise TypeError(
+            f"stage view function {func.__name__!r} returned media type "
+            f"{media_type!r}; expected text/html"
+        )
+    return _render_html(name, text)
+
+
+def _compose_vue_source(
+    template: str | None,
+    script: str | None,
+    style: str | None,
+) -> str:
+    blocks = [f"<template>\n{(template or '').strip()}\n</template>"]
+    if script is not None:
+        blocks.append(f"<script>\n{script.strip()}\n</script>")
+    if style is not None:
+        blocks.append(f"<style>\n{style.strip()}\n</style>")
+    return "\n".join(blocks)
+
+
+def _read_response_part(path: Path, base: Path, label: str) -> str:
+    resolved = path if path.is_absolute() else base / path
+    if not resolved.is_file():
+        raise FileNotFoundError(f"VueResponse {label} file not found: {resolved}")
+    return resolved.read_text(encoding="utf-8")
+
+
+def _normalize_vue_response(source: str) -> str:
+    if re.search(r"</?(template|script|style)(\s|>)", source, flags=re.IGNORECASE):
+        return source
+    return f"<template>\n{source}\n</template>"
 
 
 def _render_vue(name: str, source_path: Path, source: str) -> str:

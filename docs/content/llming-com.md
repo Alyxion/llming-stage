@@ -112,9 +112,10 @@ from llming_stage import Stage
 app = FastAPI()
 stage = Stage(app)
 sessions = stage.session()
-counter = sessions.router("counter")
-admin = sessions.app_router("admin")
-stage.view("/", "home.vue")
+counter = sessions.add_router("counter")
+admin = sessions.add_app_router("admin")
+
+stage.add_view("/", "home.vue")
 ```
 
 ## Connecting from a view

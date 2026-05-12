@@ -3,7 +3,9 @@ from fastapi import FastAPI
 from llming_stage import Stage
 
 app = FastAPI()
-stage = Stage(app, root=__file__, title="Extension workbench").view("/", "home.vue")
+stage = Stage(app, title="Extension workbench")
+
+stage.add_view("/", "home.vue")
 
 if __name__ == "__main__":
     stage.run()

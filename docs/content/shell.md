@@ -7,7 +7,9 @@ from fastapi import FastAPI
 from llming_stage import Stage
 
 app = FastAPI()
-Stage(app).view("/", "home.vue")
+stage = Stage(app)
+
+stage.add_view("/", "home.vue")
 ```
 
 This page documents the lower-level shell primitives that `Stage` uses
@@ -94,7 +96,7 @@ config = ShellConfig(
 
 ## View modules
 
-For application code, prefer `Stage(app).view("/", "home.vue")`.
+For application code, prefer `stage.add_view("/", "home.vue")`.
 `Stage` transforms the Vue file and registers the generated module with
 the shell. The lower-level `ShellConfig(view_modules=...)` path remains
 available for framework integrations that already own their module

@@ -7,24 +7,28 @@ the same session entry is reused.
 
 from __future__ import annotations
 
-from pathlib import Path
+from dataclasses import dataclass, field
+from typing import Any
 
 from fastapi import FastAPI
+from llming_com import BaseSessionEntry
 from llming_stage import Stage
 
-from samples._common import SampleSession, run
 
-HERE = Path(__file__).resolve().parent
+@dataclass
+class Session(BaseSessionEntry):
+    state: dict[str, Any] = field(default_factory=dict)
+
 
 app = FastAPI()
-stage = Stage(app, root=HERE, title="Multi-view")
-sessions = stage.session(app_name="multi_view", session_cls=SampleSession)
-timer = sessions.router("timer")
-drawer = sessions.router("drawer")
+stage = Stage(app, title="Multi-view")
+sessions = stage.session(app_name="multi_view", session_cls=Session)
+timer = sessions.add_router("timer")
+drawer = sessions.add_router("drawer")
 
 
 @timer.handler("start")
-async def start(session: SampleSession, seconds: int = 5) -> dict:
+async def start(session: Session, seconds: int = 5) -> dict:
     """Kick off a server-driven countdown. Ticks are pushed, one per second."""
     remaining = int(seconds)
 
@@ -42,26 +46,25 @@ async def start(session: SampleSession, seconds: int = 5) -> dict:
 
 
 @timer.handler("cancel")
-async def cancel(session: SampleSession) -> dict:
+async def cancel(session: Session) -> dict:
     session.cancel_timer("timer_task")
     return {"ok": True}
 
 
 @drawer.handler("open")
-async def open_drawer(session: SampleSession) -> dict:
+async def open_drawer(session: Session) -> dict:
     await session.call("drawer.open", "Opened by Python on a nested Vue component.")
     return {"ok": True}
 
 
 @drawer.handler("close")
-async def close_drawer(session: SampleSession) -> dict:
+async def close_drawer(session: Session) -> dict:
     await session.call("drawer.close")
     return {"ok": True}
 
 
-stage.view("/", "home.vue")
-stage.view("/timer", "timer.vue")
-
+stage.add_view("/", "home.vue")
+stage.add_view("/timer", "timer.vue")
 
 if __name__ == "__main__":
-    run(app, sample_dir=HERE)
+    stage.run()

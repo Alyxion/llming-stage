@@ -15,31 +15,31 @@
 
     <div class="grid gap-4 md:grid-cols-2">
       <div>
-        <div class="q-card q-pa-md h-[380px]">
+        <q-card class="q-pa-md h-[380px]">
           <div class="text-subtitle2 q-mb-sm">3D surface — sin(x)·cos(y)</div>
           <div id="chart-surface" class="h-80 w-full"></div>
-        </div>
+        </q-card>
       </div>
       <div>
-        <div class="q-card q-pa-md h-[380px]">
+        <q-card class="q-pa-md h-[380px]">
           <div class="text-subtitle2 q-mb-sm">Correlation heatmap</div>
           <div id="chart-heat" class="h-80 w-full"></div>
-        </div>
+        </q-card>
       </div>
     </div>
 
     <div class="mt-4 grid gap-4 md:grid-cols-2">
       <div>
-        <div class="q-card q-pa-md h-[360px]">
+        <q-card class="q-pa-md h-[360px]">
           <div class="text-subtitle2 q-mb-sm">Stock — candlestick (30 days)</div>
           <div id="chart-candle" class="h-[300px] w-full"></div>
-        </div>
+        </q-card>
       </div>
       <div>
-        <div class="q-card q-pa-md h-[360px]">
+        <q-card class="q-pa-md h-[360px]">
           <div class="text-subtitle2 q-mb-sm">Sankey — energy flow</div>
           <div id="chart-sankey" class="h-[300px] w-full"></div>
-        </div>
+        </q-card>
       </div>
     </div>
   </main>

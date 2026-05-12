@@ -5,17 +5,39 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from starlette.applications import Starlette
-
 from .stage import Stage
 
+_VIEW_EXTENSIONS = {".vue", ".html", ".htm", ".js"}
 
-def build_app(root: Path, *, dev: bool = True) -> Starlette:
-    app = Starlette()
+def build_app(root: Path, *, dev: bool = True):
+    title = _title_for_root(root)
+    if root.is_file():
+        stage = Stage(root=root.parent, title=title, dev=dev)
+        stage.add_view("/", root)
+        return stage.app
+
     views = root / "views"
-    stage = Stage(app, root=root, dev=dev)
-    stage.discover(views if views.is_dir() else root)
-    return app
+    stage = Stage(root=root, title=title, dev=dev)
+    if views.is_dir():
+        stage.discover(views)
+        return stage.app
+
+    view_files = sorted(
+        path
+        for path in root.rglob("*")
+        if path.is_file() and path.suffix.lower() in _VIEW_EXTENSIONS
+    )
+    if len(view_files) == 1:
+        stage.add_view("/", view_files[0])
+    else:
+        stage.discover(root)
+    return stage.app
+
+
+def _title_for_root(root: Path) -> str:
+    raw = root.stem if root.is_file() else root.name
+    text = raw.replace("_", " ").replace("-", " ").strip()
+    return text[:1].upper() + text[1:] if text else "llming"
 
 
 def main(argv: list[str] | None = None) -> int:

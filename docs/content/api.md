@@ -1,17 +1,31 @@
 # API reference
 
-## `Stage(app, **kwargs)`
+## `Stage(app=None, **kwargs)`
 
 FastAPI/Starlette-native OOP helper for new apps. It keeps the host app
 owned by FastAPI while ensuring llming-stage internals are mounted once.
-Development reload is enabled by default.
+If *app* is omitted, `Stage` creates a default `FastAPI` app and forwards
+valid extra keyword arguments to `FastAPI(...)`.
+Development reload is enabled by default. `stage.run()` is only a thin
+local-development wrapper around `uvicorn.run`; native ASGI tooling
+remains the production path.
+
+```python
+from llming_stage import Stage
+
+if __name__ == "__main__":
+    Stage(title="Hello world").add_view("/", "hello.vue").run()
+```
+
+Explicit FastAPI ownership remains the normal shape for real apps:
 
 ```python
 from fastapi import FastAPI
 from llming_stage import Stage
 
 app = FastAPI()
-Stage(app).view("/", "home.vue")
+stage = Stage(app, title="My app")
+stage.add_view("/", "home.vue")
 ```
 
 Directory discovery maps conventional files under `views/`:
@@ -26,8 +40,8 @@ routes and ask the returned helper for namespaced routers:
 ```python
 stage = Stage(app)
 sessions = stage.session()
-counter = sessions.router("counter")
-admin = sessions.app_router("admin")
+counter = sessions.add_router("counter")
+admin = sessions.add_app_router("admin")
 ```
 
 `sessions.require_session` is a FastAPI dependency for cookie-authenticated
@@ -45,6 +59,46 @@ Supported view file types:
 - `.vue`: server-side transformed into a Vue component module loaded by the shell.
 - `.html` / `.js`: compatibility paths for low-level integrations. New apps should use `.vue`.
 
+### `stage.add_view(...)` and `@stage.view(...)`
+
+Use `stage.add_view(...)` for active registration of file-backed views:
+
+```python
+stage.add_view("/", "home.vue")
+stage.add_view("/chat", "chat.vue")
+```
+
+Use `@stage.view(...)` only as a decorator for generated views. The
+function must return a response object; returning `None` or a raw string
+is an error.
+
+```python
+from llming_stage import VueResponse
+
+@stage.view("/")
+def home() -> VueResponse:
+    return VueResponse("<main>Hello from Python</main>")
+```
+
+`VueResponse` accepts either plain template HTML or a Vue SFC string:
+
+```python
+@stage.view("/status")
+def status() -> VueResponse:
+    return VueResponse(
+        template="<main>Status: {{ status }}</main>",
+        script_path="status.js",
+    )
+```
+
+`template`, `script`, and `style` can be provided separately. Use
+`template_path`, `script_path`, or `style_path` to load a part from a
+file relative to the Python file that defines the view. For larger
+components, prefer a normal `.vue` file and `stage.add_view(...)`.
+
+Use `HTMLResponse` only when the generated route should be static HTML
+rather than a Vue component.
+
 `Stage(app)` ensures these internal routes once per app:
 
 - `/_stage/loader.js`
@@ -60,9 +114,40 @@ Supported view file types:
 No-Python apps can be served or statically built with the CLI:
 
 ```bash
+llming-stage serve hello.vue
 llming-stage serve .
 llming-stage build . --out dist
 ```
+
+### `stage.run(**kwargs)`
+
+Thin local-development wrapper around `uvicorn.run`. It exists so tiny
+examples can stay short, but it does not add a second serving model.
+
+```python
+if __name__ == "__main__":
+    stage.run()
+```
+
+Equivalent explicit uvicorn shape:
+
+```python
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "main:app",
+        host="127.0.0.1",
+        port=8765,
+        reload=True,
+        reload_dirs=["."],
+        app_dir=".",
+    )
+```
+
+Use uvicorn, Hypercorn, Gunicorn workers, or your deployment server
+directly when you need process management, TLS, workers, logging, or
+production configuration.
 
 ## `mount_assets(app, **kwargs)`
 

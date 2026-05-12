@@ -24,6 +24,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SAMPLES = REPO_ROOT / "samples"
 GALLERY_PY = SAMPLES / "gallery.py"
+VIEW_EXTENSIONS = {".vue", ".html", ".htm", ".js"}
 
 
 def _port_open(host: str, port: int, timeout: float = 0.5) -> bool:
@@ -103,13 +104,31 @@ def sample_server(request: pytest.FixtureRequest) -> Iterator[str]:
     else:
         sample = mark.args[0]
 
-    main_py = SAMPLES / sample / "main.py"
-    assert main_py.is_file(), f"{main_py} does not exist"
+    sample_dir = SAMPLES / sample
+    main_py = sample_dir / "main.py"
+    assert main_py.is_file() or any(
+        p.is_file() and p.suffix.lower() in VIEW_EXTENSIONS for p in sample_dir.iterdir()
+    ), f"{sample_dir} is not a runnable sample"
 
     port = _pick_free_port()
     env = {**os.environ, "PORT": str(port), "STAGE_RELOAD": "0"}
+    command = (
+        [sys.executable, str(main_py)]
+        if main_py.is_file()
+        else [
+            sys.executable,
+            "-m",
+            "llming_stage.cli",
+            "serve",
+            str(sample_dir),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ]
+    )
     proc = subprocess.Popen(
-        [sys.executable, str(main_py)],
+        command,
         cwd=str(REPO_ROOT),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,

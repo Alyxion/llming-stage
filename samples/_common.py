@@ -222,7 +222,7 @@ def bootstrap(
         stage = Stage(app, root=root, title=title)
         by_name = dict(view_sources)
         for route, view_name in routes:
-            stage.view(route, by_name[view_name], name=view_name)
+            stage.add_view(route, by_name[view_name], name=view_name)
     else:
         if view_modules is None or static_dir is None:
             raise ValueError("bootstrap requires view_sources or view_modules + static_dir")

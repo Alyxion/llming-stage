@@ -3,9 +3,9 @@ from fastapi import FastAPI
 from llming_stage import Stage
 
 app = FastAPI()
-stage = Stage(app, root=__file__, title="Three.js").view(
-    "/", "home.vue", name="scene"
-)
+stage = Stage(app, title="Three.js")
+
+stage.add_view("/", "home.vue")
 
 if __name__ == "__main__":
     stage.run()

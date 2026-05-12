@@ -20,26 +20,29 @@ import hashlib
 import math
 import random
 import time
-from pathlib import Path
+from dataclasses import dataclass, field
+from typing import Any
 
 from fastapi import Depends, FastAPI, UploadFile
 from fastapi.responses import JSONResponse
-from llming_com import BaseLlmingApp
+from llming_com import BaseLlmingApp, BaseSessionEntry
 from llming_stage import Stage
 
-from samples._common import SampleSession, run
 
-HERE = Path(__file__).resolve().parent
+@dataclass
+class Session(BaseSessionEntry):
+    state: dict[str, Any] = field(default_factory=dict)
+
 
 app = FastAPI()
-stage = Stage(app, root=HERE, title="Capstone dashboard")
-sessions = stage.session(app_name="capstone", session_cls=SampleSession)
+stage = Stage(app, title="Capstone dashboard")
+sessions = stage.session(app_name="capstone", session_cls=Session)
 
 # ---- metric router -------------------------------------------------------
-metric = sessions.router("metric")
+metric = sessions.add_router("metric")
 
 
-async def _stream_metrics(session: SampleSession) -> None:
+async def _stream_metrics(session: Session) -> None:
     t0 = time.monotonic()
 
     async def sample() -> bool:
@@ -53,7 +56,7 @@ async def _stream_metrics(session: SampleSession) -> None:
 
 
 @metric.handler("start")
-async def metric_start(session: SampleSession) -> dict:
+async def metric_start(session: Session) -> dict:
     task = session.state.get("metric_task")
     if task and not task.done():
         return {"ok": True, "already_running": True}
@@ -62,23 +65,23 @@ async def metric_start(session: SampleSession) -> dict:
 
 
 @metric.handler("stop")
-async def metric_stop(session: SampleSession) -> dict:
+async def metric_stop(session: Session) -> dict:
     session.cancel_timer("metric_task")
     return {"ok": True}
 
 
 # ---- uploads router ------------------------------------------------------
-uploads = sessions.router("uploads")
+uploads = sessions.add_router("uploads")
 
 
 @uploads.handler("list")
-async def uploads_list(session: SampleSession) -> dict:
+async def uploads_list(session: Session) -> dict:
     await session.call("uploads.setUploads", session.state.get("uploads", []))
     return {"ok": True}
 
 
 # ---- chat router ---------------------------------------------------------
-chat = sessions.router("chat")
+chat = sessions.add_router("chat")
 
 _REPLIES = [
     "Welcome to the capstone. ",
@@ -89,7 +92,7 @@ _REPLIES = [
 
 
 @chat.handler("ask")
-async def chat_ask(session: SampleSession, text: str = "") -> dict:
+async def chat_ask(session: Session, text: str = "") -> dict:
     history = session.state.setdefault("chat", [])
     history.append({"role": "user", "text": text})
     msg_id = len(history)
@@ -105,18 +108,18 @@ async def chat_ask(session: SampleSession, text: str = "") -> dict:
 
 
 @chat.handler("history")
-async def chat_history(session: SampleSession) -> dict:
+async def chat_history(session: Session) -> dict:
     await session.call("chat.setHistory", session.state.get("chat", []))
     return {"ok": True}
 
 
 # ---- app router ---------------------------------------------------------
-admin = sessions.app_router("admin")
+admin = sessions.add_app_router("admin")
 
 
 @admin.handler("broadcast")
 async def admin_broadcast(
-    app: BaseLlmingApp[SampleSession],
+    app: BaseLlmingApp[Session],
     message: str = "Broadcast from the app router",
 ) -> dict:
     sent = await app.broadcast("home.setBroadcast", message)
@@ -126,7 +129,7 @@ async def admin_broadcast(
 @app.post("/api/upload")
 async def upload(
     file: UploadFile,
-    session: SampleSession = Depends(sessions.require_session),
+    session: Session = Depends(sessions.require_session),
 ) -> JSONResponse:
     hasher = hashlib.sha256()
     total = 0
@@ -145,11 +148,10 @@ async def upload(
     return JSONResponse(record)
 
 
-stage.view("/", "home.vue")
-stage.view("/metric", "metric.vue")
-stage.view("/uploads", "uploads.vue")
-stage.view("/chat", "chat.vue")
-
+stage.add_view("/", "home.vue")
+stage.add_view("/metric", "metric.vue")
+stage.add_view("/uploads", "uploads.vue")
+stage.add_view("/chat", "chat.vue")
 
 if __name__ == "__main__":
-    run(app, sample_dir=HERE)
+    stage.run()

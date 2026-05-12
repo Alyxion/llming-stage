@@ -8,19 +8,23 @@ sees each chunk as it is generated.
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
+from dataclasses import dataclass, field
+from typing import Any
 
 from fastapi import FastAPI
+from llming_com import BaseSessionEntry
 from llming_stage import Stage
 
-from samples._common import SampleSession, run
 
-HERE = Path(__file__).resolve().parent
+@dataclass
+class Session(BaseSessionEntry):
+    state: dict[str, Any] = field(default_factory=dict)
+
 
 app = FastAPI()
-stage = Stage(app, root=HERE, title="Streaming chat")
-sessions = stage.session(app_name="chat_stream", session_cls=SampleSession)
-chat = sessions.router("chat")
+stage = Stage(app, title="Streaming chat")
+sessions = stage.session(app_name="chat_stream", session_cls=Session)
+chat = sessions.add_router("chat")
 
 _CANNED_REPLIES = [
     "llming-stage gives you the ",
@@ -32,7 +36,7 @@ _CANNED_REPLIES = [
 
 
 @chat.handler("ask")
-async def ask(session: SampleSession, text: str = "") -> dict:
+async def ask(session: Session, text: str = "") -> dict:
     """Stream a reply chunk-by-chunk."""
     history = session.state.setdefault("chat", [])
     history.append({"role": "user", "text": text})
@@ -50,13 +54,12 @@ async def ask(session: SampleSession, text: str = "") -> dict:
 
 
 @chat.handler("history")
-async def history(session: SampleSession) -> dict:
+async def history(session: Session) -> dict:
     await session.call("home.setHistory", session.state.get("chat", []))
     return {"ok": True}
 
 
-stage.view("/", "home.vue")
-
+stage.add_view("/", "home.vue")
 
 if __name__ == "__main__":
-    run(app, sample_dir=HERE)
+    stage.run()

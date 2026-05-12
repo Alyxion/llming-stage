@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "llming-stage"
-version = "0.1.0"
+version = "0.1.1"
 description = "Shared frontend foundation and SPA app shell for the llming ecosystem — vendor JS, fonts, icons, and a lazy-loading client-side router"
 authors = ["Michael Ikemann"]
 license = "MIT"
@@ -46,7 +46,6 @@ mkdocs = ">=1.6"
 mkdocs-material = ">=9.5"
 fastapi = ">=0.100"
 python-multipart = ">=0.0.9"
-llming-com = {path = "../llming-com", develop = true}
 
 [tool.poetry.scripts]
 content-guard = "scripts.content_guard:main"

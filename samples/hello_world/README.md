@@ -1,11 +1,11 @@
 # Hello world
 
-The smallest normal app: one FastAPI object, one `Stage`, one Vue file.
-No WebSocket, no session, no helper imports.
+The smallest app: one Vue file. No Python file, no WebSocket, no
+session, no helper imports.
 
 ## Run
 
 ```bash
-poetry run python samples/hello_world/main.py
+poetry run llming-stage serve samples/hello_world
 open http://localhost:8765
 ```

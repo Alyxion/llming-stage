@@ -7,6 +7,7 @@ Public API:
     - :func:`mount_dev_reload` — attach development-only reload routes.
     - :class:`Stage` — OOP helper for FastAPI-native stage apps.
     - :class:`StageSession` — Stage-owned llming-com session wiring.
+    - :class:`VueResponse` — response type for generated Vue views.
     - :class:`ShellConfig` — configuration dataclass for the shell.
     - :func:`render_shell` — render the shell HTML (for custom wiring).
 """
@@ -15,13 +16,14 @@ from __future__ import annotations
 
 from .dev_reload import DevReloadConfig, dev_reload_head, mount_dev_reload
 from .shell import ShellConfig, mount_assets, mount_shell, render_shell
-from .stage import Stage, StageSession
+from .stage import Stage, StageSession, VueResponse
 
 __all__ = [
     "DevReloadConfig",
     "Stage",
     "StageSession",
     "ShellConfig",
+    "VueResponse",
     "dev_reload_head",
     "mount_assets",
     "mount_dev_reload",

@@ -45,10 +45,21 @@ SAMPLE_PORT = int(os.environ.get("SAMPLE_PORT", "8765"))
 def discover() -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
     for p in sorted(HERE.iterdir()):
-        if not (p.is_dir() and (p / "main.py").is_file()):
+        if not _is_sample_dir(p):
             continue
         items.append({"name": p.name, "hint": _readme_hint(p / "README.md")})
     return items
+
+
+def _is_sample_dir(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+    if (path / "main.py").is_file():
+        return True
+    return any(
+        p.is_file() and p.suffix.lower() in {".vue", ".html", ".htm", ".js"}
+        for p in path.iterdir()
+    )
 
 
 def _readme_hint(readme: Path) -> str:
@@ -99,13 +110,29 @@ class SampleRunner:
                 return
             await self._stop_unlocked()
             main_py = HERE / name / "main.py"
-            if not main_py.is_file():
+            sample_dir = HERE / name
+            if not _is_sample_dir(sample_dir):
                 raise FileNotFoundError(name)
             env = {**os.environ, "PORT": str(SAMPLE_PORT)}
+            command = (
+                [sys.executable, str(main_py)]
+                if main_py.is_file()
+                else [
+                    sys.executable,
+                    "-m",
+                    "llming_stage.cli",
+                    "serve",
+                    str(sample_dir),
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(SAMPLE_PORT),
+                ]
+            )
             # Give the sample its own process group so reload supervisors
             # AND their workers can all be signalled together on stop.
             self.proc = subprocess.Popen(
-                [sys.executable, str(main_py)],
+                command,
                 env=env,
                 cwd=str(REPO),
                 start_new_session=True,

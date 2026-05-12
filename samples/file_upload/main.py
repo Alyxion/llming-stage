@@ -12,24 +12,28 @@ This is the canonical "HTTP for bulk, WS for reactive" split.
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
+from dataclasses import dataclass, field
+from typing import Any
 
 from fastapi import Depends, FastAPI, UploadFile
 from fastapi.responses import JSONResponse
+from llming_com import BaseSessionEntry
 from llming_stage import Stage
 
-from samples._common import SampleSession, run
 
-HERE = Path(__file__).resolve().parent
+@dataclass
+class Session(BaseSessionEntry):
+    state: dict[str, Any] = field(default_factory=dict)
+
 
 app = FastAPI()
-stage = Stage(app, root=HERE, title="File upload")
-sessions = stage.session(app_name="file_upload", session_cls=SampleSession)
-uploads = sessions.router("uploads")
+stage = Stage(app, title="File upload")
+sessions = stage.session(app_name="file_upload", session_cls=Session)
+uploads = sessions.add_router("uploads")
 
 
 @uploads.handler("list")
-async def list_uploads(session: SampleSession) -> dict:
+async def list_uploads(session: Session) -> dict:
     await session.call("home.setUploads", session.state.get("uploads", []))
     return {"ok": True}
 
@@ -37,7 +41,7 @@ async def list_uploads(session: SampleSession) -> dict:
 @app.post("/api/upload")
 async def upload(
     file: UploadFile,
-    session: SampleSession = Depends(sessions.require_session),
+    session: Session = Depends(sessions.require_session),
 ) -> JSONResponse:
     """Cookie-authed multipart upload. Streams chunks, hashes in memory.
 
@@ -62,8 +66,7 @@ async def upload(
     return JSONResponse(record)
 
 
-stage.view("/", "home.vue")
-
+stage.add_view("/", "home.vue")
 
 if __name__ == "__main__":
-    run(app, sample_dir=HERE)
+    stage.run()

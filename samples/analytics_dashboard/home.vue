@@ -55,7 +55,7 @@
     </section>
 
     <section class="grid gap-4 md:grid-cols-4">
-      <article v-for="item in kpis" :key="item.key" class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
+      <article v-for="item in kpis" :key="item.key" class="rounded-2xl border border-slate-200 bg-[#ffffff] p-5 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
         <div class="flex items-start justify-between gap-4">
           <div>
             <p class="text-xs font-bold uppercase tracking-widest text-slate-500">{{ item.label }}</p>
@@ -68,38 +68,38 @@
     </section>
 
     <section class="grid gap-4 xl:grid-cols-3">
-      <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900 xl:col-span-2">
+      <article class="rounded-2xl border border-slate-200 bg-[#ffffff] p-5 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900 xl:col-span-2">
         <h2 class="mb-3 font-bold">Revenue & Orders Trend</h2>
         <div id="chart-line" ref="line" class="h-72 w-full"></div>
       </article>
-      <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
+      <article class="rounded-2xl border border-slate-200 bg-[#ffffff] p-5 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
         <h2 class="mb-3 font-bold">Product Sales</h2>
         <div id="chart-bar" ref="bar" class="h-72 w-full"></div>
       </article>
-      <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
+      <article class="rounded-2xl border border-slate-200 bg-[#ffffff] p-5 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
         <h2 class="mb-3 font-bold">Sales Distribution</h2>
         <div id="chart-pie" ref="pie" class="h-64 w-full"></div>
       </article>
-      <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
+      <article class="rounded-2xl border border-slate-200 bg-[#ffffff] p-5 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
         <h2 class="mb-3 font-bold">Regional Performance</h2>
         <div id="chart-radar" ref="radar" class="h-64 w-full"></div>
       </article>
-      <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
+      <article class="rounded-2xl border border-slate-200 bg-[#ffffff] p-5 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
         <h2 class="mb-3 font-bold">System Health</h2>
         <div class="grid grid-cols-2 gap-2">
           <div id="chart-cpu" ref="cpu" class="h-56 w-full"></div>
           <div id="chart-mem" ref="mem" class="h-56 w-full"></div>
         </div>
       </article>
-      <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
+      <article class="rounded-2xl border border-slate-200 bg-[#ffffff] p-5 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
         <h2 class="mb-3 font-bold">Weekly Activity</h2>
         <div id="chart-heat" ref="heat" class="h-64 w-full"></div>
       </article>
-      <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
+      <article class="rounded-2xl border border-slate-200 bg-[#ffffff] p-5 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
         <h2 class="mb-3 font-bold">Customer Segments</h2>
         <div id="chart-scatter" ref="scatter" class="h-64 w-full"></div>
       </article>
-      <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
+      <article class="rounded-2xl border border-slate-200 bg-[#ffffff] p-5 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
         <h2 class="mb-3 font-bold">Stock Performance</h2>
         <div id="chart-candle" ref="candle" class="h-64 w-full"></div>
       </article>

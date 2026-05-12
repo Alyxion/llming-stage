@@ -49,7 +49,7 @@ from fastapi import FastAPI
 from llming_stage import Stage
 
 app = FastAPI()
-Stage(app, root=__file__, title="dev reload").view("/", "home.vue")
+Stage(app, root=__file__, title="dev reload").add_view("/", "home.vue")
 """,
         encoding="utf-8",
     )

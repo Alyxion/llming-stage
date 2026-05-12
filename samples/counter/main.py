@@ -2,26 +2,30 @@
 
 Two WS handlers: ``counter.inc`` increments the session's counter and
 pushes the new value; ``counter.reset`` resets it. State lives on
-:class:`SampleSession.state` — so it is per-user, server-held, and
+``Session.state`` — so it is per-user, server-held, and
 inspectable through the debug API.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
+from dataclasses import dataclass, field
+from typing import Any
 
 from fastapi import FastAPI
-from pydantic import BaseModel
+from llming_com import BaseSessionEntry
 from llming_stage import Stage
+from pydantic import BaseModel
 
-from samples._common import SampleSession, run
 
-HERE = Path(__file__).resolve().parent
+@dataclass
+class Session(BaseSessionEntry):
+    state: dict[str, Any] = field(default_factory=dict)
+
 
 app = FastAPI()
-stage = Stage(app, root=HERE, title="Counter")
-sessions = stage.session(app_name="counter", session_cls=SampleSession)
-counter = sessions.router("counter")
+stage = Stage(app, title="Counter")
+sessions = stage.session(app_name="counter", session_cls=Session)
+counter = sessions.add_router("counter")
 
 
 class IncEvent(BaseModel):
@@ -34,21 +38,20 @@ class CounterAck(BaseModel):
 
 
 @counter.handler("inc")
-async def inc(session: SampleSession, event: IncEvent) -> CounterAck:
+async def inc(session: Session, event: IncEvent) -> CounterAck:
     session.state["count"] = int(session.state.get("count", 0)) + event.by
     await session.call("home.setCounter", session.state["count"])
     return CounterAck(ok=True, value=session.state["count"])
 
 
 @counter.handler("reset")
-async def reset(session: SampleSession) -> CounterAck:
+async def reset(session: Session) -> CounterAck:
     session.state["count"] = 0
     await session.call("home.setCounter", 0)
     return CounterAck(ok=True, value=0)
 
 
-stage.view("/", "home.vue")
-
+stage.add_view("/", "home.vue")
 
 if __name__ == "__main__":
-    run(app, sample_dir=HERE)
+    stage.run()

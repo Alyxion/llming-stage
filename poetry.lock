@@ -530,22 +530,23 @@ i18n = ["Babel (>=2.7)"]
 
 [[package]]
 name = "llming-com"
-version = "0.1.5"
-description = "Reusable WebSocket session management, auth, and debug API for llming applications"
+version = "0.1.7"
+description = "Where JavaScript, Python, and AI agents speak the same language"
 optional = false
-python-versions = ">=3.14,<4"
-groups = ["main", "dev"]
-files = []
-develop = true
+python-versions = "<4,>=3.12"
+groups = ["main"]
+files = [
+    {file = "llming_com-0.1.7-py3-none-any.whl", hash = "sha256:da127690d5f75b59727a6ba2ade3507085fe7f2a7b3520a51674a3dbb1ef3f76"},
+    {file = "llming_com-0.1.7.tar.gz", hash = "sha256:657287902ea4a7f7e52b659a0a283949f53dcfd9c134b991329dbbc1d239514a"},
+]
 
 [package.dependencies]
 fastapi = ">=0.100"
 pydantic = ">=2"
 starlette = ">=0.27"
 
-[package.source]
-type = "directory"
-url = "../llming-com"
+[package.extras]
+mcp = ["mcp (>=1.0)"]
 
 [[package]]
 name = "markdown"
@@ -1757,4 +1758,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.14,<4"
-content-hash = "82ce24c4027894c62c54c1fe4aea076ebe38860a6c58fa89dbc66e587aefac9e"
+content-hash = "8ef94461a864ddc5468b3b98020a423a67d0abc946660621b877a8fca0494964"

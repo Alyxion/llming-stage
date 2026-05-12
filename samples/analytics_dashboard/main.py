@@ -3,9 +3,9 @@ from fastapi import FastAPI
 from llming_stage import Stage
 
 app = FastAPI()
-stage = Stage(app, root=__file__, title="Analytics Dashboard").view(
-    "/", "home.vue", name="dashboard"
-)
+stage = Stage(app, title="Analytics Dashboard")
+
+stage.add_view("/", "home.vue")
 
 if __name__ == "__main__":
     stage.run()

@@ -16,10 +16,10 @@ the chat history, live chart state, and upload list all survive.
 ## What to notice
 
 - `Stage.session(...)` returns the session helper. The sample asks it
-  for `sessions.router("metric")`, `sessions.router("uploads")`, and
-  `sessions.router("chat")` instead of assembling a root router by hand.
+  for `sessions.add_router("metric")`, `sessions.add_router("uploads")`,
+  and `sessions.add_router("chat")` instead of assembling a root router by hand.
 - An `AppRouter` namespace (`admin`) demonstrates app-scoped handlers:
-  `sessions.app_router("admin")` receives `app`, then broadcasts to
+  `sessions.add_app_router("admin")` receives `app`, then broadcasts to
   mounted Vue method targets.
 - Views call `this.$stage.connect()` and expose normal Vue `methods`.
   Python reaches those methods with addressed calls such as

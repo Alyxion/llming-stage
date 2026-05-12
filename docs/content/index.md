@@ -32,8 +32,12 @@ static. See [Communication model](communication-model.md).
 ## What `llming-stage` provides
 
 - **A FastAPI-native `Stage` API.** Create your own `FastAPI()` app,
-  then call `Stage(app).view("/", "home.vue")` or
-  `Stage(app).discover()`. Assets and dev reload are mounted once.
+  or let `Stage()` create the default FastAPI app for compact demos.
+  Register file-backed views with `stage.add_view("/", "home.vue")`, decorate
+  generated views with `@stage.view("/")`, or call `Stage(app).discover()`.
+  Assets and dev reload are mounted once.
+  `Stage` never owns server startup; run the app with normal ASGI tools
+  such as `uvicorn main:app --reload`.
 - **An app shell.** One HTML document that boots Vue + Quasar once,
   loads the llming-com WebSocket client, exposes `$stage.send(...)`
   plus Python-to-Vue method dispatch, and hosts whichever view the router mounts.

@@ -41,6 +41,17 @@ def test_hello_world(sample_server: str, page: Page) -> None:
 
 
 # ---------------------------------------------------------------------------
+# generated_views — real decorator-backed pages
+# ---------------------------------------------------------------------------
+@pytest.mark.sample("generated_views")
+def test_generated_views(sample_server: str, page: Page) -> None:
+    page.goto(sample_server)
+    expect(page.locator("h1")).to_contain_text("Generated views", timeout=10_000)
+    page.locator("a[href='/status']").click()
+    expect(page.locator("h1")).to_contain_text("Status: ready", timeout=10_000)
+
+
+# ---------------------------------------------------------------------------
 # counter — server state + reactive push
 # ---------------------------------------------------------------------------
 @pytest.mark.sample("counter")
@@ -291,6 +302,7 @@ def test_basic_components(sample_server: str, page: Page) -> None:
     [
         ("static_shell", "Static shell"),
         ("hello_world", "Hello world"),
+        ("generated_views", "Generated views"),
         ("counter", "Counter"),
         ("multi_view", "Multi-view"),
         ("file_upload", "File upload"),

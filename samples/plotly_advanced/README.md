@@ -1,6 +1,6 @@
 # Advanced Plotly
 
-Showcases the `Stage(app).view("/", "home.vue")` API with chart types
+Showcases the `stage.add_view("/", "home.vue")` API with chart types
 only available in the **`plotly/full`** bundle (4.8 MB) — 3D surface,
 heatmap, candlestick, and a Sankey diagram. The basic Plotly bundle
 (~1 MB, what sample 10 uses) doesn't include any of these.

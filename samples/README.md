@@ -1,9 +1,9 @@
 # llming-stage samples
 
-Thirteen sample apps that show how to build with
+Fourteen sample apps that show how to build with
 `llming-stage` + [`llming-com`](https://github.com/Alyxion/llming-com)
 (the Python WebSocket session framework) by the book. Every sample
-that need server reactivity open **one WebSocket per user** and route
+that needs server reactivity opens **one WebSocket per user** and routes
 reactive traffic through typed `SessionRouter`/`AppRouter` handlers. Purely
 client-side samples do not open a WebSocket. The
 [communication model](../docs/content/communication-model.md) rules are
@@ -26,7 +26,7 @@ Prefer a straight launch without the gallery? Just run the sample
 directly:
 
 ```bash
-poetry run python samples/hello_world/main.py
+poetry run llming-stage serve samples/hello_world
 ```
 
 Env knobs for the gallery:
@@ -40,6 +40,7 @@ Env knobs for the gallery:
 |--------|--------------|
 | [static_shell](static_shell/) | Pure static shell — no WebSocket, no llming-com. Could be deployed to GitHub Pages. |
 | [hello_world](hello_world/) | Smallest normal app: FastAPI + `Stage` + one tiny Vue file. |
+| [generated_views](generated_views/) | Two real `@stage.view(...)` routes generated directly by Python functions. |
 | [counter](counter/) | First llming-com sample: Pydantic input/output, server-side state, and Python-to-Vue method calls. |
 | [multi_view](multi_view/) | Two SPA routes plus an imported child Vue component sharing one WebSocket. |
 | [file_upload](file_upload/) | HTTP POST upload (cookie-authed) + WebSocket progress notifications. |
@@ -54,7 +55,9 @@ Env knobs for the gallery:
 
 ## Conventions
 
-- `main.py` is the standalone FastAPI server. Runs under `poetry run python ...`.
+- `main.py` is the standalone FastAPI server when the sample needs Python.
+  Pure frontend samples may be only `.vue` files and run through
+  `llming-stage serve`.
 - View files live at the sample root as `home.vue`, `metric.vue`, etc.
 - `static/` is reserved for real static assets such as images, not app views.
 - Use Tailwind utility classes for layout and one-off styling. Add custom
@@ -62,9 +65,11 @@ Env knobs for the gallery:
 - Sample view files must stay declarative: no `<style>` blocks, no inline
   `style=`, no imperative `innerHTML`, and no app views hidden under
   `static/*.js`. `tests/test_sample_conventions.py` enforces this.
-- Static/frontend-only samples use `Stage(app).view(...)` directly.
-- llming-com samples use `Stage.session(...)` or the shared `_common.py`
-  helpers where that keeps the sample focused on its reactive idea.
+- Static/frontend-only Python samples use `stage.add_view(route, filename)`.
+- Generated views use the decorator form, `@stage.view(...)`, and the
+  function must return content.
+- llming-com samples use `Stage.session(...)` and public llming-com
+  session classes directly; sample code must not import private helpers.
 - Vue views call `await this.$stage.connect()` and send reactive commands
   via `this.$stage.send("router.handler", payload)`.
 - Python calls Vue methods directly with addressed calls such as
@@ -73,7 +78,7 @@ Env knobs for the gallery:
 - Reactive traffic uses `SessionRouter` handlers that receive `session`
   or `AppRouter` handlers that receive `app`. Use Pydantic models for
   typed payloads and return values where the shape matters.
-  HTTP endpoints appear only for file transfer (sample 05, 10) —
+  HTTP endpoints appear only for file transfer (`file_upload`, `capstone_dashboard`) —
   never to model reactive state.
 
 ## Contributing a new sample

@@ -32,7 +32,7 @@ flowchart LR
 ### What you get
 
 - **An AI-debuggable runtime** — every reactive command, session, and event is browseable, invokable, and observable through one HTTP / MCP surface.
-- **FastAPI-native app mounting** — create your own `FastAPI()` app and attach `Stage(app)`. The internal `/_stage` routes and development reload are ensured once.
+- **FastAPI-native app mounting** — create your own `FastAPI()` app and attach `Stage(app)`, or let `Stage()` create the default FastAPI app for compact demos. The internal `/_stage` routes and development reload are ensured once; server startup stays normal FastAPI/ASGI (`uvicorn main:app --reload`, deployment servers, etc.).
 - **Modern frontend, zero boilerplate** — Vue 3 + Quasar 2 + bundled Tailwind utilities with a lazy-load orchestrator and an SPA router that keeps the WebSocket and view state alive across navigations.
 - **Per-user sessions out of the box** — `llming-com` runs the wire and the auth; you write JS views and Python handlers.
 - **Static-deployable** — when there's no server-side reactivity at runtime, the same code ships to GitHub Pages, S3, or any CDN.
@@ -47,18 +47,17 @@ poetry install
 ./samples/run.sh        # opens a web gallery at http://localhost:8000
 ```
 
-Thirteen sample apps — from a tiny static app to llming-com reactive loops, a Three.js particle tornado, an 8-chart ECharts dashboard, Plotly full-bundle charts, a core component workbench, and an optional-extension workbench — with dark/light theme, hot reload, and AI-debug control.
+Fourteen sample apps — from a tiny static app to generated decorator views, llming-com reactive loops, a Three.js particle tornado, an 8-chart ECharts dashboard, Plotly full-bundle charts, a core component workbench, and an optional-extension workbench — with dark/light theme, hot reload, and AI-debug control.
 
 ---
 
 ### Minimal app
 
 ```python
-from fastapi import FastAPI
 from llming_stage import Stage
 
-app = FastAPI()
-Stage(app).view("/", "home.vue")
+if __name__ == "__main__":
+    Stage(title="Hello world").add_view("/", "hello.vue").run()
 ```
 
 ```vue
@@ -69,9 +68,19 @@ Stage(app).view("/", "home.vue")
 </template>
 ```
 
-`Stage(app)` mounts the bundled assets, the Vue + Quasar shell, the SPA
+For a purely static app, no Python file is needed:
+
+```bash
+llming-stage serve hello.vue
+```
+
+`Stage()` mounts the bundled assets, the Vue + Quasar shell, the SPA
 router, bundled Tailwind utilities, and content-hash development reload
 by default.
+
+`stage.run()` is a thin local-development wrapper around `uvicorn.run`.
+If you need workers, custom logging, TLS, or deployment process
+management, run the same app directly with normal ASGI tooling.
 
 Reactive apps add a typed session router and let Stage mount the
 conventional session routes:
@@ -83,7 +92,7 @@ from llming_stage import Stage
 app = FastAPI()
 stage = Stage(app)
 sessions = stage.session()
-counter = sessions.router("counter")
+counter = sessions.add_router("counter")
 
 @counter.handler("inc")
 async def inc(session, by: int = 1):
@@ -92,7 +101,7 @@ async def inc(session, by: int = 1):
     await session.call("home.setCounter", value)
     return {"ok": True}
 
-stage.view("/", "home.vue")
+stage.add_view("/", "home.vue")
 ```
 
 The browser gets a real Vue + Quasar SPA from `.vue` view files.

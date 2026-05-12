@@ -39,7 +39,13 @@ from fastapi import FastAPI
 from llming_stage import Stage
 
 app = FastAPI()
-Stage(app).view("/", "home.vue")
+stage = Stage(app)
+
+stage.add_view("/", "home.vue")
+
+
+if __name__ == "__main__":
+    stage.run()
 ```
 
 ```vue title="home.vue"
@@ -50,7 +56,13 @@ Stage(app).view("/", "home.vue")
 </template>
 ```
 
-Run it with any normal ASGI server:
+Run it with the thin local runner:
+
+```bash
+python main.py
+```
+
+Or with any normal ASGI server:
 
 ```bash
 uvicorn main:app --reload
