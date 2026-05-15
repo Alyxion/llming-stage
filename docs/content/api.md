@@ -387,6 +387,7 @@ On the browser, the shell exposes:
 | `window.__stage.register(name, entry)` | Register a new component. |
 | `window.__stage.connect()` | Open or reuse the llming-com session socket from `/api/session`. |
 | `window.__stage.send(type, payload)` | Send a routed message such as `counter.inc` to Python. Vue views usually call this as `this.$stage.send(...)`. |
+| `window.__stage.onReconnect(handler)` | Register a callback fired after a successful WebSocket auto-reconnect (network blip, server restart). Returns an unsubscribe function. Use it to re-send any "subscribe"-style messages so server-pushed state stays fresh. |
 | `window.__stage.call(target, method, args, kwargs)` | Invoke a registered Vue component method. Used by Python `session.call("target.method", ...)` messages. |
 | `window.__stage.loaded` | `Set<string>` of loaded names (introspection). |
 | `window.__stageBase` | URL prefix the shell resolves vendor paths against. Equals `asset_prefix` for unversioned shells, or `{asset_prefix}/v{lib_version}` when the app pinned an older bundle. |

@@ -142,14 +142,19 @@
     //     Cmd+T — mints a fresh hint so the server creates a fresh
     //     session. Reload-in-tab is exactly the case where we WANT to
     //     keep the same session_id (tab still holds its in-flight state).
-    let isReload = false;
+    let trustStored = false;
     try {
       const nav = performance && performance.getEntriesByType
         && performance.getEntriesByType('navigation')[0];
-      if (nav && nav.type === 'reload') isReload = true;
+      // `reload` is an explicit user reload of this document.
+      // `back_forward` is a BFCache restore — the page is the same
+      // document the user left, so the stored hint is still ours.
+      if (nav && (nav.type === 'reload' || nav.type === 'back_forward')) {
+        trustStored = true;
+      }
     } catch (_) {}
     let hint = null;
-    if (isReload) {
+    if (trustStored) {
       try { hint = sessionStorage.getItem('__llming_session'); } catch (_) {}
     }
     if (!hint) {
@@ -222,11 +227,26 @@
     }
   }
 
+  const reconnectListeners = [];
+  function onReconnect(handler) {
+    if (typeof handler === 'function') reconnectListeners.push(handler);
+    return () => {
+      const i = reconnectListeners.indexOf(handler);
+      if (i >= 0) reconnectListeners.splice(i, 1);
+    };
+  }
+  function fireReconnect() {
+    for (const h of reconnectListeners.slice()) {
+      try { h(); } catch (e) { console.error('[llming-stage] onReconnect handler', e); }
+    }
+  }
+
   async function connect(options = {}) {
     if (socketPromise) return socketPromise;
     socketPromise = session(options.sessionUrl).then(({ wsUrl }) => {
       const onOpen = options.onOpen || null;
       const onMessage = options.onMessage || null;
+      const onReconnected = options.onReconnected || null;
       return new Promise((resolve) => {
         socket = new window.LlmingWebSocket(wsUrl, {
           ...options,
@@ -237,6 +257,13 @@
           onMessage(message) {
             dispatch(message);
             if (onMessage) onMessage(message);
+          },
+          onReconnected() {
+            // LlmingWebSocket fires this after a successful reconnect
+            // (network blip, server restart). Server-pushed state is
+            // lost across the gap — give views a chance to re-sync.
+            if (onReconnected) onReconnected();
+            fireReconnect();
           },
         });
         socket.connect();
@@ -262,6 +289,7 @@
     send,
     call,
     dispatch,
+    onReconnect,
     loaded,
     registry,
     get socket() { return socket; },

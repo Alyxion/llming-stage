@@ -164,6 +164,12 @@ export default {
     // Ask the server to push initial state + start the metrics ticker.
     // The server replies via session.call("home.applyInitial", …).
     this.$stage.send('dashboard.subscribe');
+    // Re-subscribe whenever the WS reconnects (network blip, server
+    // restart). Without this the dashboard keeps rendering whatever
+    // it had when the connection dropped — sometimes for minutes.
+    this._offReconnect = this.$stage.onReconnect(() => {
+      this.$stage.send('dashboard.subscribe');
+    });
     // Charts auto-redraw on Quasar dark-mode toggles.
     this.resizeObserver = new ResizeObserver(() => Object.values(this.charts).forEach((c) => c.resize()));
     this.resizeObserver.observe(this.$el);
@@ -172,6 +178,7 @@ export default {
   },
   beforeUnmount() {
     if (this.searchTimer) clearTimeout(this.searchTimer);
+    this._offReconnect?.();
     this.resizeObserver?.disconnect();
     this.themeObserver?.disconnect();
     Object.values(this.charts).forEach((c) => c.dispose());

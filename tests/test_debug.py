@@ -47,15 +47,61 @@ def test_stage_mounts_debug_when_env_set(monkeypatch: pytest.MonkeyPatch) -> Non
 
 @pytest.fixture
 def debug_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    """A debug-WS client that authenticates via token.
+
+    Starlette's TestClient reports ``host="testclient"`` which is not
+    a loopback address, so the default no-token / loopback-only path
+    would refuse it. We set a token to exercise the WS message loop;
+    the loopback path is covered by ``test_check_auth_*`` below.
+    """
     monkeypatch.setenv("LLMING_STAGE_DEBUG", "1")
-    monkeypatch.delenv("LLMING_STAGE_DEBUG_TOKEN", raising=False)
+    monkeypatch.setenv("LLMING_STAGE_DEBUG_TOKEN", "test-token")
     app = Starlette()
     mount_debug(app)
     return TestClient(app)
 
 
+def _ws_with_host(host: str):
+    class _Client:
+        def __init__(self, host: str) -> None:
+            self.host = host
+    class _WS:
+        def __init__(self, host: str, params: dict) -> None:
+            self.client = _Client(host)
+            self.query_params = params
+    return _WS(host, {})
+
+
+def test_check_auth_token_match(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLMING_STAGE_DEBUG_TOKEN", "s3cret")
+    ws = _ws_with_host("203.0.113.1")
+    ws.query_params = {"token": "s3cret"}
+    assert debug_mod._check_auth(ws) is True
+
+
+def test_check_auth_token_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLMING_STAGE_DEBUG_TOKEN", "s3cret")
+    ws = _ws_with_host("127.0.0.1")
+    ws.query_params = {"token": "wrong"}
+    assert debug_mod._check_auth(ws) is False
+
+
+def test_check_auth_no_token_loopback_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LLMING_STAGE_DEBUG_TOKEN", raising=False)
+    for host in ("127.0.0.1", "::1", "localhost"):
+        ws = _ws_with_host(host)
+        assert debug_mod._check_auth(ws) is True, host
+
+
+def test_check_auth_no_token_non_loopback_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LLMING_STAGE_DEBUG_TOKEN", raising=False)
+    for host in ("10.0.0.5", "192.168.1.50", "203.0.113.1", "testclient"):
+        ws = _ws_with_host(host)
+        assert debug_mod._check_auth(ws) is False, host
+
+
 def test_info_query_returns_versions_and_pid(debug_client: TestClient) -> None:
-    with debug_client.websocket_connect("/_stage/debug/ws") as ws:
+    with debug_client.websocket_connect("/_stage/debug/ws?token=test-token") as ws:
         ws.send_json({"id": 1, "q": "info"})
         msg = ws.receive_json()
     assert msg["id"] == 1
@@ -68,7 +114,7 @@ def test_info_query_returns_versions_and_pid(debug_client: TestClient) -> None:
 
 
 def test_metrics_query_returns_expected_keys(debug_client: TestClient) -> None:
-    with debug_client.websocket_connect("/_stage/debug/ws") as ws:
+    with debug_client.websocket_connect("/_stage/debug/ws?token=test-token") as ws:
         ws.send_json({"q": "metrics"})
         msg = ws.receive_json()
     assert msg["ok"] is True
@@ -81,7 +127,7 @@ def test_metrics_query_returns_expected_keys(debug_client: TestClient) -> None:
 
 
 def test_threads_query_includes_main_thread(debug_client: TestClient) -> None:
-    with debug_client.websocket_connect("/_stage/debug/ws") as ws:
+    with debug_client.websocket_connect("/_stage/debug/ws?token=test-token") as ws:
         ws.send_json({"q": "threads"})
         msg = ws.receive_json()
     assert msg["ok"] is True
@@ -90,7 +136,7 @@ def test_threads_query_includes_main_thread(debug_client: TestClient) -> None:
 
 
 def test_modules_query_lists_llming_stage(debug_client: TestClient) -> None:
-    with debug_client.websocket_connect("/_stage/debug/ws") as ws:
+    with debug_client.websocket_connect("/_stage/debug/ws?token=test-token") as ws:
         ws.send_json({"q": "modules"})
         msg = ws.receive_json()
     assert msg["ok"] is True
@@ -99,7 +145,7 @@ def test_modules_query_lists_llming_stage(debug_client: TestClient) -> None:
 
 
 def test_stack_query_returns_main_thread_frames(debug_client: TestClient) -> None:
-    with debug_client.websocket_connect("/_stage/debug/ws") as ws:
+    with debug_client.websocket_connect("/_stage/debug/ws?token=test-token") as ws:
         ws.send_json({"q": "stack"})
         msg = ws.receive_json()
     assert msg["ok"] is True
@@ -117,7 +163,7 @@ def test_stdout_tail_returns_buffered_lines(debug_client: TestClient) -> None:
     """
     marker = "llming-stage-debug-test-marker-12345"
     debug_mod._stdout_buffer.write(marker + "\n")
-    with debug_client.websocket_connect("/_stage/debug/ws") as ws:
+    with debug_client.websocket_connect("/_stage/debug/ws?token=test-token") as ws:
         ws.send_json({"q": "stdout_tail", "args": {"n": 50}})
         msg = ws.receive_json()
     assert msg["ok"] is True
@@ -140,7 +186,7 @@ def test_install_stream_capture_wraps_streams() -> None:
 
 
 def test_unknown_query_returns_available_list(debug_client: TestClient) -> None:
-    with debug_client.websocket_connect("/_stage/debug/ws") as ws:
+    with debug_client.websocket_connect("/_stage/debug/ws?token=test-token") as ws:
         ws.send_json({"q": "this-is-not-a-real-query"})
         msg = ws.receive_json()
     assert msg["ok"] is False

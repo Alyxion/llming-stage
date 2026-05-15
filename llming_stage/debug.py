@@ -235,8 +235,11 @@ def _query_modules(_: dict[str, Any]) -> list[dict[str, Any]]:
     import warnings
 
     stdlib = getattr(sys, "stdlib_module_names", frozenset())
+    # Snapshot under the GIL so concurrent imports can't raise
+    # `RuntimeError: dictionary changed size during iteration`.
+    module_names = sorted(list(sys.modules))
     out: list[dict[str, Any]] = []
-    for name in sorted(sys.modules):
+    for name in module_names:
         if "." in name:
             continue
         if name in stdlib:
@@ -306,26 +309,47 @@ def _session_registry(websocket: WebSocket | None) -> Any:
     return getattr(state, "llming_stage_registry", None)
 
 
+def _mono_to_epoch(monotonic_seconds: float | None) -> float | None:
+    """Convert a ``time.monotonic()`` value to a Unix epoch second.
+
+    llming-com's ``BaseSessionEntry`` records ``last_activity`` and
+    related fields with ``time.monotonic()``, which is a process-local
+    clock — feeding it to ``new Date(ts*1000)`` in the runner UI
+    renders timestamps in 1970. We rebase against the current
+    monotonic→epoch offset so the UI shows wall-clock times.
+    """
+    if monotonic_seconds is None:
+        return None
+    return time.time() - (time.monotonic() - monotonic_seconds)
+
+
 def _session_record(session_id: str, entry: Any) -> dict[str, Any]:
     """Squash a session entry into JSON-safe shape, tolerating attribute drift."""
 
-    def pick(*names: str) -> Any:
+    def pick_mono(*names: str) -> float | None:
         for n in names:
             v = getattr(entry, n, None)
             if v is not None:
                 return v
         return None
 
-    state = pick("state") or {}
+    state = getattr(entry, "state", None) or {}
     if isinstance(state, dict):
         state_keys = sorted(state.keys())
     else:
         state_keys = []
+    # llming-com's BaseSessionEntry only exposes `last_activity` as a
+    # monotonic timestamp. Fall back to created_at-style fields for
+    # subclasses that add them; default to last_activity if nothing
+    # else is set so freshly-registered sessions get a usable "joined"
+    # column instead of an empty cell.
+    last_seen_mono = pick_mono("last_seen", "last_message_at", "updated_at", "last_activity")
+    created_at_mono = pick_mono("created_at", "registered_at", "last_activity")
     return {
         "session_id": session_id,
-        "user_id": pick("user_id"),
-        "last_seen": pick("last_seen", "last_message_at", "updated_at"),
-        "created_at": pick("created_at", "registered_at"),
+        "user_id": getattr(entry, "user_id", None),
+        "last_seen": _mono_to_epoch(last_seen_mono),
+        "created_at": _mono_to_epoch(created_at_mono),
         "controller_ready": getattr(entry, "controller", None) is not None,
         "state_keys": state_keys,
     }
@@ -416,20 +440,36 @@ _CTX_HANDLERS: dict[str, Any] = {
 # ---------------------------------------------------------------------------
 
 
-def _check_token(websocket: WebSocket) -> bool:
-    expected = os.environ.get(_ENV_TOKEN, "").strip()
-    if not expected:
-        return True
-    got = websocket.query_params.get("token", "")
-    # Constant-time-ish compare. Strings short enough that `==` is fine
-    # in practice; using hmac.compare_digest for principle.
-    import hmac
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
-    return hmac.compare_digest(got, expected)
+
+def _is_loopback(websocket: WebSocket) -> bool:
+    client = getattr(websocket, "client", None)
+    host = getattr(client, "host", None) if client is not None else None
+    return host in _LOOPBACK_HOSTS
+
+
+def _check_auth(websocket: WebSocket) -> bool:
+    """Allow the connection?
+
+    Two modes, ranked safest-first:
+
+    1. ``LLMING_STAGE_DEBUG_TOKEN`` is set → require a matching ``token``
+       query param via ``hmac.compare_digest``. Network-safe.
+    2. No token configured → only accept loopback clients (127.0.0.1,
+       ::1, localhost). Prevents accidental exposure when an operator
+       turns the env var on while the app happens to bind 0.0.0.0.
+    """
+    expected = os.environ.get(_ENV_TOKEN, "").strip()
+    if expected:
+        import hmac
+        got = websocket.query_params.get("token", "")
+        return hmac.compare_digest(got, expected)
+    return _is_loopback(websocket)
 
 
 async def _debug_ws(websocket: WebSocket) -> None:
-    if not _check_token(websocket):
+    if not _check_auth(websocket):
         await websocket.close(code=4401)
         return
     await websocket.accept()

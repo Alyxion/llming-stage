@@ -28,7 +28,7 @@ from .shell import (
     render_shell,
 )
 
-_LIB_VERSION_RE = re.compile(r"\d{4}-\d{2}(-\d+)?")
+_LIB_VERSION_RE = re.compile(r"\d{4}-(0[1-9]|1[0-2])(-\d+)?")
 
 _VIEW_EXTENSIONS = {".vue", ".js", ".html", ".htm"}
 
@@ -199,17 +199,30 @@ class StageSession:
         """Drop *session_id* from the registry after the grace period.
 
         Cancels any in-flight removal first — repeated disconnects on the
-        same session reset the timer rather than stacking.
+        same session reset the timer rather than stacking. After the
+        sleep returns we re-check whether the task is still the one
+        tracked under *session_id*: a reconnect that ran
+        ``_cancel_removal`` plus another disconnect that scheduled a
+        *new* task can otherwise race past a CancelledError-less sleep
+        return and remove a still-live session.
         """
         self._cancel_removal(session_id)
+
+        task_ref: dict[str, Any] = {}
 
         async def _drop() -> None:
             try:
                 await asyncio.sleep(self.disconnect_grace_seconds)
             except asyncio.CancelledError:
                 return
-            self.registry.remove(session_id)
+            # Only proceed if our task is still the registered one for
+            # this session_id. If a reconnect cancelled+replaced us,
+            # the dict entry will point at a different Task object.
+            current = self._removal_tasks.get(session_id)
+            if current is not task_ref.get("self"):
+                return
             self._removal_tasks.pop(session_id, None)
+            self.registry.remove(session_id)
 
         try:
             loop = asyncio.get_running_loop()
@@ -217,7 +230,9 @@ class StageSession:
             # No loop — synchronous test path. Remove eagerly.
             self.registry.remove(session_id)
             return
-        self._removal_tasks[session_id] = loop.create_task(_drop())
+        task = loop.create_task(_drop())
+        task_ref["self"] = task
+        self._removal_tasks[session_id] = task
 
     async def require_session(self, request: Request) -> Any:
         """FastAPI dependency returning the current cookie-authenticated session."""

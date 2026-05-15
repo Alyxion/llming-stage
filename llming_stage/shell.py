@@ -224,6 +224,19 @@ _DEBUG_BRIDGE_SCRIPT = """<script>
     } catch (_) {}
   });
   window.addEventListener('message', function (ev) {
+    // Only accept messages whose `source` is the *actual* parent
+    // window object. This blocks sibling frames, grandparents, and
+    // any other window from forging an eval message — even when they
+    // know to set m.source = 'llming-stage-runner'.
+    //
+    // The bridge intentionally accepts the parent's origin as-is
+    // (the gallery runs at a different port than the sample, so they
+    // are cross-origin). This is OK because the bridge only activates
+    // when LLMING_STAGE_DEBUG=1 — i.e. the developer explicitly opted
+    // into the runner-controlled surface. In production deployments
+    // the env var stays unset, no bridge is injected, and the eval
+    // path doesn't exist at all.
+    if (ev.source !== window.parent) return;
     var m = ev.data;
     if (!m || m.source !== 'llming-stage-runner') return;
     if (m.type === 'eval') {
@@ -389,6 +402,12 @@ def mount_assets(
     ``{asset_prefix}/v{lib_version_segment}/...`` instead of the default
     unversioned tree — used by ``Stage`` when the app pins an older bundle.
     """
+    # Per-app+prefix+version dedupe so multiple mount_assets() callers
+    # (e.g. one direct + one via Stage) don't double-register routes.
+    state = getattr(app, "state", None)
+    flag = f"llming_stage_assets_mounted_{asset_prefix}_v{lib_version_segment}"
+    if state is not None and getattr(state, flag, False):
+        return
     icons_path  = icons_zip  if icons_zip  is not None else _ASSETS_ROOT / "phosphor-icons.zip"
     emoji_path  = emoji_zip  if emoji_zip  is not None else _ASSETS_ROOT / "noto-emoji.zip"
     tabler_path = tabler_zip if tabler_zip is not None else _ASSETS_ROOT / "tabler-icons.zip"
@@ -409,6 +428,8 @@ def mount_assets(
     )
     for route in routes:
         app.router.routes.append(route)
+    if state is not None:
+        setattr(state, flag, True)
 
 
 _ASSET_CATEGORIES = ("vendor", "fonts", "lang", "icons", "emoji", "tabler", "llming-com")

@@ -30,6 +30,17 @@ from pydantic import BaseModel
 class Session(BaseSessionEntry):
     state: dict[str, Any] = field(default_factory=dict)
 
+    def cleanup_runtime(self) -> None:
+        # llming-com's BaseSessionEntry only cancels timers it knows
+        # about (entry._timers). Our metrics ticker lives on
+        # state["_metrics_task"], so it must be cancelled here or
+        # it survives `registry.remove()` and keeps trying to push
+        # over a dead controller every 2s for the life of the process.
+        task = self.state.get("_metrics_task")
+        if task is not None and not task.done():
+            task.cancel()
+        super().cleanup_runtime()
+
 
 REGIONS = ["North", "South", "East", "West", "Central"]
 PRODUCTS = ["Laptops", "Phones", "Tablets", "Watches", "Headphones"]
@@ -166,9 +177,10 @@ class FilterChange(BaseModel):
 async def subscribe(session: Session) -> None:
     """Push the initial dataset and start the metrics ticker.
 
-    The client calls this exactly once on mount. The server is the
-    source of truth: filter options, current filter selection, and the
-    dataset all come over the WebSocket.
+    The client calls this on mount AND on every WS reconnect (via the
+    ``$stage.onReconnect`` callback), so server-pushed state is
+    refreshed after network blips or server restarts. Idempotent — the
+    metrics ticker only spawns when one isn't already running.
     """
     filters = session.state.setdefault("filters", _default_filters())
     await session.call(
@@ -197,8 +209,11 @@ async def set_filters(session: Session, change: FilterChange) -> None:
 async def _metrics_ticker(session: Session) -> None:
     """Push CPU/memory readings every 2 seconds for the System Health card.
 
-    Self-terminates as soon as ``session.call`` fails (the WebSocket is
-    gone) — no separate cancellation needed in the happy path.
+    Runs for the life of the session. Survives transient WS drops:
+    a failed ``session.call`` is logged-and-ignored, not fatal — the
+    LlmingWebSocket client auto-reconnects and the next push lands.
+    Terminates only when ``Session.cleanup_runtime`` cancels it as
+    part of registry removal.
     """
     cpu = session.state.get("_cpu", 45.0)
     mem = session.state.get("_mem", 62.0)
@@ -208,10 +223,14 @@ async def _metrics_ticker(session: Session) -> None:
             mem = max(20.0, min(90.0, mem + random.uniform(-3, 3)))
             session.state["_cpu"] = cpu
             session.state["_mem"] = mem
-            try:
-                await session.call("home.applyMetrics", {"cpu": round(cpu, 1), "memory": round(mem, 1)})
-            except Exception:
-                return  # controller / WS gone — bail cleanly
+            if session.controller is not None:
+                try:
+                    await session.call(
+                        "home.applyMetrics",
+                        {"cpu": round(cpu, 1), "memory": round(mem, 1)},
+                    )
+                except Exception:
+                    pass  # transient — keep ticking, controller will be back
             await asyncio.sleep(2.0)
     except asyncio.CancelledError:
         return

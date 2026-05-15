@@ -34,7 +34,14 @@ python = ">=3.14,<4"
 starlette = ">=0.27"
 llming-com = ">=0.1.5,<0.2"
 uvicorn = {extras = ["standard"], version = ">=0.27"}
-psutil = ">=5.9"
+# psutil is opt-in: only needed for the `metrics` query in the debug
+# WebSocket (CPU%, RSS, threads, FDs). The bridge already returns a
+# friendly `{"error": "psutil not installed"}` payload otherwise.
+# Install with `pip install llming-stage[debug]` to enable.
+psutil = {version = ">=5.9", optional = true}
+
+[tool.poetry.extras]
+debug = ["psutil"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0"
@@ -47,6 +54,8 @@ mkdocs = ">=1.6"
 mkdocs-material = ">=9.5"
 fastapi = ">=0.100"
 python-multipart = ">=0.0.9"
+# Pull psutil into the dev env so the metrics test passes locally.
+psutil = ">=5.9"
 
 [tool.poetry.scripts]
 content-guard = "scripts.content_guard:main"
