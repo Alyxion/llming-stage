@@ -34,6 +34,7 @@ python = ">=3.14,<4"
 starlette = ">=0.27"
 llming-com = ">=0.1.5,<0.2"
 uvicorn = {extras = ["standard"], version = ">=0.27"}
+psutil = ">=5.9"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0"

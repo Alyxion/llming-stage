@@ -133,3 +133,91 @@ def test_shell_escapes_js_route_value() -> None:
     # the shell's own script blocks are still expected in the document.)
     assert "register('/</script>'" not in html
     assert "register('/\\x3c/script\\x3e'" in html
+
+
+# --- Vendor-bundle version pinning ---------------------------------------
+
+
+def test_shell_unversioned_when_no_segment() -> None:
+    """No lib_version_segment → URLs identical to today (regression)."""
+    import re
+
+    html = render_shell(ShellConfig(lib_version="2026-05"))
+    # asset_prefix default is "/_stage"; no /v<YYYY-MM>/ segment in any URL.
+    assert re.search(r"/_stage/v\d{4}-\d{2}", html) is None
+    assert 'href="/_stage/fonts/fonts.css"' in html
+    assert 'src="/_stage/vendor/vue.global.prod.js"' in html
+    assert 'src="/_stage/llming-com/llming-ws.js"' in html
+    assert '"three": "/_stage/vendor/three.module.min.js"' in html
+    assert '"three/addons/": "/_stage/vendor/"' in html
+    assert "window.__stageBase = '/_stage'" in html
+    assert "window.__stageLibVersion = '2026-05'" in html
+
+
+def test_shell_versioned_when_segment_set() -> None:
+    """lib_version_segment='2024-01' → /v2024-01/ between prefix and category."""
+    html = render_shell(
+        ShellConfig(lib_version_segment="2024-01", lib_version="2024-01")
+    )
+    assert 'href="/_stage/v2024-01/fonts/fonts.css"' in html
+    assert 'href="/_stage/v2024-01/vendor/quasar.prod.css"' in html
+    assert 'src="/_stage/v2024-01/vendor/vue.global.prod.js"' in html
+    assert 'src="/_stage/v2024-01/vendor/quasar.umd.prod.js"' in html
+    assert 'src="/_stage/v2024-01/vendor/tailwindcss.browser.global.js"' in html
+    assert 'src="/_stage/v2024-01/llming-com/llming-ws.js"' in html
+    assert 'src="/_stage/v2024-01/loader.js"' in html
+    assert 'src="/_stage/v2024-01/router.js"' in html
+    assert '"three": "/_stage/v2024-01/vendor/three.module.min.js"' in html
+    assert '"three/addons/": "/_stage/v2024-01/vendor/"' in html
+    assert "window.__stageBase = '/_stage/v2024-01'" in html
+    assert "window.__stageLibVersion = '2024-01'" in html
+
+
+def test_shell_versioned_with_custom_asset_prefix() -> None:
+    """Combining asset_prefix and lib_version_segment composes correctly."""
+    html = render_shell(
+        ShellConfig(
+            asset_prefix="/shared/_stage",
+            lib_version_segment="2024-01",
+            lib_version="2024-01",
+        )
+    )
+    assert 'src="/shared/_stage/v2024-01/loader.js"' in html
+    assert "window.__stageBase = '/shared/_stage/v2024-01'" in html
+
+
+def test_export_package_assets_writes_full_tree(tmp_path) -> None:
+    from pathlib import Path
+
+    from llming_stage import LIB_VERSION, __version__
+    from llming_stage.shell import export_package_assets
+
+    target = tmp_path / "_stage_dump"
+    export_package_assets(target)
+
+    # Per-category dirs exist
+    for cat in ("vendor", "fonts", "lang", "llming-com", "icons", "emoji", "tabler"):
+        assert (target / cat).is_dir(), f"missing category: {cat}"
+    # Loader + router copied from static root
+    assert (target / "loader.js").is_file()
+    assert (target / "router.js").is_file()
+    # Manifest written
+    manifest_path = target / "manifest.json"
+    assert manifest_path.is_file()
+    import json
+
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["lib_version"] == LIB_VERSION
+    assert manifest["pkg_version"] == __version__
+    assert set(manifest["categories"]) == {
+        "vendor", "fonts", "lang", "icons", "emoji", "tabler", "llming-com",
+    }
+
+
+def test_export_package_assets_no_manifest(tmp_path) -> None:
+    from llming_stage.shell import export_package_assets
+
+    target = tmp_path / "_stage_no_manifest"
+    export_package_assets(target, write_manifest=False)
+    assert not (target / "manifest.json").exists()
+    assert (target / "vendor").is_dir()

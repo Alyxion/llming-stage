@@ -130,12 +130,45 @@
   }
 
   async function session(url = '/api/session') {
-    if (!sessionPromise) {
-      sessionPromise = fetch(url, { credentials: 'include' }).then((r) => {
-        if (!r.ok) throw new Error('llming-stage: session request failed');
-        return r.json();
-      });
+    if (sessionPromise) return sessionPromise;
+    // Per-tab session continuity:
+    //   - sessionStorage IS scoped per-tab+origin, BUT some openings
+    //     (`window.open(url, '_blank')`, target=_blank links without
+    //     noopener) clone it from the opener. If we naively trust the
+    //     stored value on a fresh document we'd reuse another tab's
+    //     session and both WSes would fight for one controller slot.
+    //   - Trust the stored hint ONLY when this is a true reload of the
+    //     same document. Anything else — paste URL, link click, popout,
+    //     Cmd+T — mints a fresh hint so the server creates a fresh
+    //     session. Reload-in-tab is exactly the case where we WANT to
+    //     keep the same session_id (tab still holds its in-flight state).
+    let isReload = false;
+    try {
+      const nav = performance && performance.getEntriesByType
+        && performance.getEntriesByType('navigation')[0];
+      if (nav && nav.type === 'reload') isReload = true;
+    } catch (_) {}
+    let hint = null;
+    if (isReload) {
+      try { hint = sessionStorage.getItem('__llming_session'); } catch (_) {}
     }
+    if (!hint) {
+      hint = (window.crypto && window.crypto.randomUUID)
+        ? window.crypto.randomUUID()
+        : 'tab-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+    }
+    const finalUrl = url + (url.indexOf('?') >= 0 ? '&' : '?') +
+                     'session=' + encodeURIComponent(hint);
+    sessionPromise = fetch(finalUrl, { credentials: 'include' }).then(async (r) => {
+      if (!r.ok) throw new Error('llming-stage: session request failed');
+      const data = await r.json();
+      try {
+        if (data && data.sessionId) {
+          sessionStorage.setItem('__llming_session', data.sessionId);
+        }
+      } catch (_) {}
+      return data;
+    });
     return sessionPromise;
   }
 

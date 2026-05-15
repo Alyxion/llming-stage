@@ -83,6 +83,47 @@ The following route groups are idempotently mounted:
 It is safe for multiple subprojects to create a `Stage(app)` against the
 same app. Existing `/_stage` assets are reused instead of duplicated.
 
+## Bundle version pinning (`lib_version=`) — default for new apps
+
+For apps that will outlive the library bundle they were written against
+— typically when many small apps are hosted behind one shared static
+mount — declare the vendor-bundle version you targeted:
+
+```python
+Stage(app, lib_version="2026-05")  # current LIB_VERSION, baked as a literal
+```
+
+**Always pin new apps at scaffold time.** Look up the current value with
+
+```bash
+python -c "import llming_stage; print(llming_stage.LIB_VERSION)"
+```
+
+and copy the resulting string into your `main.py` as a literal. Don't
+pass `lib_version=llming_stage.LIB_VERSION` (the symbol): it always
+equals "current installed", resolves to no rewrite, and gives you no
+forward compatibility once the package upgrades.
+
+Until that bundle stops being the latest on the shared host, the shell
+still emits unversioned URLs (`/_stage/vendor/…`). When the shared host
+upgrades to a newer bundle, this app's shell automatically starts
+emitting `/_stage/v2026-05/…` instead — so the app keeps loading the
+libraries it was built against, provided the shared host kept the older
+bundle archived.
+
+`lib_version` is independent of the Python package version
+(`__version__`). The bundle version is `llming_stage.LIB_VERSION`,
+calendar-formatted (`YYYY-MM`), and only changes when files under
+`llming_stage/{vendor, fonts, lang, assets}/` are swapped. See
+[Assets → Shared hosting & bundle versioning](assets.md#shared-hosting-bundle-versioning)
+for the full workflow including the `llming-stage export-assets` CLI
+used to populate the shared host.
+
+!!! note "Samples in this repo don't pin"
+    Examples under `samples/` intentionally omit `lib_version=` — they
+    travel inside the package and always upgrade with the bundle they
+    target. Your apps, living in their own repos, should always pin.
+
 ## Development reload
 
 Development reload is enabled by default. The watcher scans essential
@@ -109,6 +150,16 @@ stage = Stage(app, dev=False)
 
 stage.add_view("/", "home.vue")
 ```
+
+## Opt-in debug API
+
+`Stage(...)` auto-mounts a process-introspection WebSocket at
+`<asset_prefix>/debug/ws` **only** when the environment variable
+`LLMING_STAGE_DEBUG=1` is set before the app boots. Disabled in every
+other case. Useful for a host runner that supervises multiple
+llming-stage apps and wants live CPU/memory/threads/log tails from each
+one. See [Debug API](debug.md) for the env vars, security model, and
+query catalog.
 
 ## Directory discovery
 

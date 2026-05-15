@@ -10,6 +10,16 @@ Development reload is enabled by default. `stage.run()` is only a thin
 local-development wrapper around `uvicorn.run`; native ASGI tooling
 remains the production path.
 
+Selected keyword arguments:
+
+| Argument | Meaning |
+|----------|---------|
+| `title` | Document `<title>`. |
+| `root` | Directory or file the Stage's views resolve against. Defaults to the calling Python file's parent. |
+| `asset_prefix` | URL prefix where assets are mounted. Defaults to `/_stage`. |
+| `dev` / `dev_reload` | Enable development reload. Default `True`. |
+| `lib_version` | Optional vendor-bundle pin (calendar `YYYY-MM`). When the pin equals the installed `LIB_VERSION` (or is omitted), URLs stay unversioned; when pinned to an older bundle, every asset URL gains a `/v<YYYY-MM>/` segment. See [Assets → Shared hosting & bundle versioning](assets.md#shared-hosting-bundle-versioning). |
+
 ```python
 from llming_stage import Stage
 
@@ -119,6 +129,14 @@ llming-stage serve .
 llming-stage build . --out dist
 ```
 
+Shared-host operators dump the installed package's vendor bundle with:
+
+```bash
+llming-stage export-assets --out /var/www/_stage
+```
+
+See [Assets → Shared hosting & bundle versioning](assets.md#shared-hosting-bundle-versioning).
+
 ### `stage.run(**kwargs)`
 
 Thin local-development wrapper around `uvicorn.run`. It exists so tiny
@@ -165,11 +183,18 @@ def mount_assets(
     icons_zip: Path | None = None,
     emoji_zip: Path | None = None,
     tabler_zip: Path | None = None,
+    lib_version_segment: str = "",
 ) -> None
 ```
 
 All directory/archive arguments default to the files bundled in the
 installed package. Pass explicit paths to override individual assets.
+
+`lib_version_segment` is a pre-resolved version string used by `Stage`
+when an app pins an older bundle: a non-empty value inserts `/v<value>/`
+between `asset_prefix` and every category subpath. Apps almost never
+set this directly — `Stage(app, lib_version="2026-05")` derives it
+automatically. See [Assets → Shared hosting & bundle versioning](assets.md#shared-hosting-bundle-versioning).
 
 The registered routes are:
 
@@ -185,6 +210,78 @@ The registered routes are:
 
 `mount_assets()` raises `RuntimeError` at call time if `llming-com` is
 not importable — the package does not function without it.
+
+## `LIB_VERSION` and `__version__`
+
+Two version stamps live on the `llming_stage` package, with on-purpose
+distinct roles:
+
+- **`llming_stage.__version__`** — the Python package version (from
+  `pyproject.toml`). Read at import time via `importlib.metadata`.
+  Bumps frequently for Python-side fixes. **Apps do not pin against
+  this.**
+- **`llming_stage.LIB_VERSION`** — the vendor-bundle version
+  (calendar `YYYY-MM`). Bumps only when files under
+  `llming_stage/{vendor, fonts, lang, assets}/` change. The same string
+  is stamped at the top of `THIRD_PARTY.md` and a test enforces sync.
+
+Apps pass `LIB_VERSION` to `Stage(app, lib_version=...)` when they want
+to keep loading the vendor surface they were built against once the
+shared host has refreshed. See [Assets → Shared hosting & bundle versioning](assets.md#shared-hosting-bundle-versioning).
+
+## `export_package_assets(target, *, write_manifest=True)`
+
+Dump the installed package's vendor bundle as a complete static tree
+into *target*. Used by the `llming-stage export-assets` CLI to populate
+a shared host:
+
+```python
+from pathlib import Path
+from llming_stage import export_package_assets
+
+export_package_assets(Path("/var/www/_stage"))
+```
+
+The result contains `vendor/`, `fonts/`, `lang/`, `llming-com/`,
+`icons/`, `emoji/`, `tabler/`, `loader.js`, `router.js`, and
+(when *write_manifest* is true) `manifest.json` with
+`lib_version`, `pkg_version`, and the category list. Whole-snapshot only
+— partial dumps are not supported.
+
+The CLI is the operator-facing surface:
+
+```bash
+llming-stage export-assets --out /var/www/_stage
+llming-stage export-assets --out /var/www/_stage/v2026-05 --no-manifest
+```
+
+## `mount_debug(app, *, asset_prefix="/_stage")`
+
+Mount the opt-in process-introspection WebSocket at
+`<asset_prefix>/debug/ws`. Idempotent per app+prefix. Side-effect:
+installs the silent stdout/stderr ring-buffer capture (1000 lines each;
+the original streams are unchanged).
+
+`Stage(...)` calls this automatically when `is_debug_enabled()` returns
+`True` (env var `LLMING_STAGE_DEBUG` is set). Callers using
+`mount_assets()` directly can opt in themselves:
+
+```python
+from llming_stage import is_debug_enabled, mount_assets, mount_debug
+
+mount_assets(app)
+if is_debug_enabled():
+    mount_debug(app)
+```
+
+See [Debug API](debug.md) for the full env-var, security, and protocol
+description.
+
+## `is_debug_enabled()`
+
+Return `True` when `LLMING_STAGE_DEBUG` is set to anything other than
+the obvious falsy spellings (`""`, `"0"`, `"false"`, `"no"`, `"off"`,
+case-insensitive).
 
 ## `mount_shell(app, *, config=None, path="/", **kwargs)`
 
@@ -255,6 +352,8 @@ class ShellConfig:
     preload_views: list[str] = []
     dev_reload: bool = False
     dev_reload_prefix: str = "/_stage/dev"
+    lib_version_segment: str = ""
+    lib_version: str = ""
 ```
 
 | Field | Meaning |
@@ -268,6 +367,8 @@ class ShellConfig:
 | `preload_views` | View modules to `__stage.load()` immediately after the shell boots. Useful for the default landing view. |
 | `dev_reload` | Include the development reload client script. Requires `mount_dev_reload(app)` in the host app. |
 | `dev_reload_prefix` | URL prefix for the development reload client. Must match `DevReloadConfig.url_prefix`. |
+| `lib_version_segment` | Pre-resolved version segment. When non-empty (e.g. `"2026-05"`), every asset URL is rewritten as `{asset_prefix}/v{segment}/...`. Set automatically by `Stage` when the app pinned an older bundle; rarely set by hand. |
+| `lib_version` | The bundle string the page is actually loading. Emitted as `window.__stageLibVersion` for debug/self-reporting. `Stage` sets this to `LIB_VERSION` when there's no rewrite, or to the pinned string when there is. |
 
 ## `render_shell(config: ShellConfig) -> str`
 
@@ -288,6 +389,8 @@ On the browser, the shell exposes:
 | `window.__stage.send(type, payload)` | Send a routed message such as `counter.inc` to Python. Vue views usually call this as `this.$stage.send(...)`. |
 | `window.__stage.call(target, method, args, kwargs)` | Invoke a registered Vue component method. Used by Python `session.call("target.method", ...)` messages. |
 | `window.__stage.loaded` | `Set<string>` of loaded names (introspection). |
+| `window.__stageBase` | URL prefix the shell resolves vendor paths against. Equals `asset_prefix` for unversioned shells, or `{asset_prefix}/v{lib_version}` when the app pinned an older bundle. |
+| `window.__stageLibVersion` | The vendor-bundle version this page is loading (e.g. `"2026-05"`). Debug/self-reporting; nothing in the runtime reads it. |
 | `window.__stageRouter.register(pattern, view)` | Register a route. Called automatically for `ShellConfig.routes`. |
 | `window.__stageRouter.navigate(path, {replace})` | Programmatic navigation. |
 | `window.__stageRouter.start()` | Called automatically at shell boot. |

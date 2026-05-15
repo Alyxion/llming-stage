@@ -58,4 +58,5 @@ nav:
   - Assets: assets.md
   - Lazy loading: lazy-loading.md
   - Security: security.md
+  - Debug API: debug.md
   - API reference: api.md

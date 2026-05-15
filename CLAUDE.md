@@ -210,6 +210,42 @@ This repository is MIT-licensed. The following rules are non-negotiable:
 resources. It must be updated in the SAME commit that adds or updates any third-party
 resource. Never commit a vendored file without updating this table.
 
+The header of `THIRD_PARTY.md` carries a **Bundle version: YYYY-MM** stamp that MUST
+match `llming_stage.LIB_VERSION`. Bump both whenever any file under
+`llming_stage/{vendor, fonts, lang, assets}/` is swapped. The test
+`tests/test_lib_version_sync.py` enforces sync.
+
+## Generated apps pin `LIB_VERSION` — forward compatibility — NORMATIVE
+When you (the agent — or any contributor scaffolding new code) create a new
+end-user llming-stage app for a USER — a fresh `main.py`, a template, a
+copy-pasteable getting-started snippet — `Stage(...)` MUST pin `lib_version`
+to the **current `LIB_VERSION` as a string literal**, not as a symbol:
+
+```python
+from llming_stage import Stage
+
+# Bake the CURRENT LIB_VERSION literally at scaffold time.
+# Look it up with:  python -c "import llming_stage; print(llming_stage.LIB_VERSION)"
+stage = Stage(app, lib_version="2026-05")
+```
+
+The literal is what gives the user's app **forward compatibility**: when
+llming-stage later refreshes its vendor bundle on the shared host, the app's
+shell auto-rewrites asset URLs to the archived `/v2026-05/` tree, and the app
+keeps loading exactly the libraries it was authored against (Plotly version,
+Three version, font set, locale packs, …).
+
+`Stage(app, lib_version=LIB_VERSION)` (the *symbol*, not a literal) is **wrong**
+for end-user apps — it always equals "current installed" and resolves to no
+rewrite, providing zero forward compatibility once the package is upgraded.
+
+Exception: this repository's own `samples/`, `tests/`, and internal helpers do
+**not** pin — they travel inside the package and upgrade together with the
+bundle they target. Real apps living in their own repos always pin.
+
+See `docs/content/assets.md#shared-hosting-bundle-versioning` for the full
+hosting workflow.
+
 ## Loading Strategy
 All components MUST be lazy-loaded on demand. Only the critical shell (Vue, Quasar core,
 fonts) loads on initial page load. Everything else (KaTeX, Mermaid, Three.js, Plotly,

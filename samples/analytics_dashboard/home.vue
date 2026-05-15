@@ -3,12 +3,12 @@
     <header class="flex flex-wrap items-end justify-between gap-4">
       <div>
         <h1 class="dash-title text-3xl font-black tracking-tight">Analytics Dashboard</h1>
-        <p class="text-sm text-slate-500 dark:text-slate-400">{{ timestamp }}</p>
+        <p class="text-sm text-slate-500 dark:text-slate-400">{{ timestamp }} · {{ connected ? 'live · server-driven' : 'connecting…' }}</p>
       </div>
       <div class="flex gap-2">
-        <button class="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white" type="button" @click="refresh">Refresh</button>
-        <button class="rounded-xl border border-slate-300 px-4 py-2 font-bold dark:border-slate-700" type="button" @click="showComparison = !showComparison">
-          {{ showComparison ? "Hide YoY" : "Compare YoY" }}
+        <button class="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white" type="button" :disabled="!connected" @click="refresh">Refresh</button>
+        <button class="rounded-xl border border-slate-300 px-4 py-2 font-bold dark:border-slate-700" type="button" :disabled="!connected" @click="toggleComparison">
+          {{ filters.show_comparison ? 'Hide YoY' : 'Compare YoY' }}
         </button>
       </div>
     </header>
@@ -18,11 +18,12 @@
         <p class="text-xs font-bold uppercase tracking-widest text-slate-500">Regions</p>
         <div class="mt-2 flex flex-wrap gap-2">
           <button
-            v-for="region in regions"
+            v-for="region in options.regions"
             :key="region"
-            :class="chipClass(selectedRegions.includes(region))"
+            :class="chipClass(filters.regions.includes(region))"
             type="button"
-            @click="toggle(selectedRegions, region)"
+            :disabled="!connected"
+            @click="toggle('regions', region)"
           >
             {{ region }}
           </button>
@@ -30,19 +31,20 @@
       </div>
       <label class="block">
         <span class="text-xs font-bold uppercase tracking-widest text-slate-500">Date range</span>
-        <select v-model="dateRange" class="mt-2 rounded-xl border border-slate-300 bg-transparent px-3 py-2 text-inherit dark:border-slate-700" @change="drawAll">
-          <option v-for="range in dateRanges" :key="range">{{ range }}</option>
+        <select :value="filters.date_range" class="mt-2 rounded-xl border border-slate-300 bg-transparent px-3 py-2 text-inherit dark:border-slate-700" :disabled="!connected" @change="setDateRange($event.target.value)">
+          <option v-for="range in options.date_ranges" :key="range">{{ range }}</option>
         </select>
       </label>
       <div>
         <p class="text-xs font-bold uppercase tracking-widest text-slate-500">Products</p>
         <div class="mt-2 flex flex-wrap gap-2">
           <button
-            v-for="product in products"
+            v-for="product in options.products"
             :key="product"
-            :class="chipClass(selectedProducts.includes(product))"
+            :class="chipClass(filters.products.includes(product))"
             type="button"
-            @click="toggle(selectedProducts, product)"
+            :disabled="!connected"
+            @click="toggle('products', product)"
           >
             {{ product }}
           </button>
@@ -50,7 +52,7 @@
       </div>
       <label class="block">
         <span class="text-xs font-bold uppercase tracking-widest text-slate-500">Search</span>
-        <input v-model="searchText" class="mt-2 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2 text-inherit outline-none dark:border-slate-700" placeholder="laptop" @input="drawAll">
+        <input :value="filters.search" class="mt-2 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2 text-inherit outline-none dark:border-slate-700" placeholder="laptop" :disabled="!connected" @input="setSearch($event.target.value)">
       </label>
     </section>
 
@@ -108,67 +110,125 @@
 </template>
 
 <script>
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const PRODUCT_COLORS = {
-  Laptops: '#3b82f6',
-  Phones: '#10b981',
-  Tablets: '#f59e0b',
-  Watches: '#ef4444',
-  Headphones: '#8b5cf6',
+const KPI_BADGES = {
+  revenue:    { delta: '+12.5%', badge: 'UP',  color: 'text-blue-500',    label: 'Revenue',    prefix: '$' },
+  orders:     { delta: '+8.2%',  badge: 'ORD', color: 'text-emerald-500', label: 'Orders',     prefix: ''  },
+  customers:  { delta: '+15.3%', badge: 'USR', color: 'text-purple-500',  label: 'Customers',  prefix: ''  },
+  conversion: { delta: '+0.8%',  badge: 'CVR', color: 'text-amber-500',   label: 'Conversion', prefix: ''  },
 };
 
 export default {
   data() {
     return {
-      charts: {},
-      dateRange: 'Last 12 months',
-      dateRanges: ['Last 7 days', 'Last 30 days', 'Last 3 months', 'Last 12 months', 'Year to date'],
-      products: ['Laptops', 'Phones', 'Tablets', 'Watches', 'Headphones'],
-      regions: ['North', 'South', 'East', 'West', 'Central'],
-      searchText: '',
-      selectedProducts: ['Laptops', 'Phones', 'Tablets', 'Watches', 'Headphones'],
-      selectedRegions: ['North', 'South', 'East', 'West', 'Central'],
-      showComparison: false,
+      // Connection + server-pushed state.
+      connected: false,
       timestamp: '—',
+      options: { regions: [], products: [], date_ranges: [] },
+      filters: {
+        regions: [], products: [], date_range: '', search: '', show_comparison: false,
+      },
+      serverData: null,
+      cpuUsage: 0,
+      memoryUsage: 0,
+      // ECharts instances + observers (not reactive but stored on `this` for cleanup).
+      charts: {},
+      resizeObserver: null,
       themeObserver: null,
-      metricTimer: null,
-      cpuUsage: 45,
-      memoryUsage: 62,
+      searchTimer: null,
     };
   },
   computed: {
     kpis() {
-      const scale = this.scale();
-      return [
-        { key: 'revenue', label: 'Revenue', value: '$' + Math.floor(124500 * scale).toLocaleString(), delta: '+12.5%', badge: 'UP', color: 'text-blue-500' },
-        { key: 'orders', label: 'Orders', value: Math.floor(1847 * scale).toLocaleString(), delta: '+8.2%', badge: 'ORD', color: 'text-emerald-500' },
-        { key: 'customers', label: 'Customers', value: Math.floor(892 * scale).toLocaleString(), delta: '+15.3%', badge: 'USR', color: 'text-purple-500' },
-        { key: 'conversion', label: 'Conversion', value: '3.24%', delta: '+0.8%', badge: 'CVR', color: 'text-amber-500' },
-      ];
+      const k = (this.serverData && this.serverData.kpis) || {};
+      return Object.keys(KPI_BADGES).map((key) => {
+        const meta = KPI_BADGES[key];
+        const v = k[key];
+        let value;
+        if (v == null) {
+          value = '—';
+        } else if (key === 'conversion') {
+          value = v.toFixed(2) + '%';
+        } else {
+          value = meta.prefix + Number(v).toLocaleString();
+        }
+        return { key, label: meta.label, value, delta: meta.delta, badge: meta.badge, color: meta.color };
+      });
     },
   },
   async mounted() {
     await window.__stage.load('echarts');
     this.refreshTimestamp();
-    await this.$nextTick();
-    this.drawAll();
-    this.metricTimer = setInterval(() => {
-      this.cpuUsage = Math.max(10, Math.min(95, this.cpuUsage + (Math.random() * 10 - 5)));
-      this.memoryUsage = Math.max(20, Math.min(90, this.memoryUsage + (Math.random() * 6 - 3)));
-      this.drawGauges();
-    }, 2000);
+    // Open the WebSocket — this is what registers the per-tab session
+    // visible in the runner's Sessions tab. Without it, no dashboard.
+    await this.$stage.connect();
+    // Ask the server to push initial state + start the metrics ticker.
+    // The server replies via session.call("home.applyInitial", …).
+    this.$stage.send('dashboard.subscribe');
+    // Charts auto-redraw on Quasar dark-mode toggles.
     this.resizeObserver = new ResizeObserver(() => Object.values(this.charts).forEach((c) => c.resize()));
     this.resizeObserver.observe(this.$el);
     this.themeObserver = new MutationObserver(() => this.drawAll());
     this.themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
   },
   beforeUnmount() {
-    clearInterval(this.metricTimer);
+    if (this.searchTimer) clearTimeout(this.searchTimer);
     this.resizeObserver?.disconnect();
     this.themeObserver?.disconnect();
     Object.values(this.charts).forEach((c) => c.dispose());
   },
   methods: {
+    /* --- methods the server calls on this view ------------------------ */
+    applyInitial(options, filters, data) {
+      this.options = options;
+      this.filters = filters;
+      this.applyData(data);
+      this.connected = true;
+      this.refreshTimestamp();
+    },
+    applyDataset(filters, data) {
+      this.filters = filters;
+      this.applyData(data);
+      this.refreshTimestamp();
+    },
+    applyMetrics(metrics) {
+      this.cpuUsage = metrics.cpu;
+      this.memoryUsage = metrics.memory;
+      this.drawGauges();
+    },
+
+    /* --- user-driven filter changes ----------------------------------- */
+    toggle(category, value) {
+      // Compute the next list and ship the whole new value up; the
+      // server is the source of truth for what's selected.
+      const current = this.filters[category] || [];
+      const next = current.includes(value)
+        ? current.filter((v) => v !== value)
+        : [...current, value];
+      this.$stage.send('dashboard.set_filters', { [category]: next });
+    },
+    setDateRange(date_range) {
+      this.$stage.send('dashboard.set_filters', { date_range });
+    },
+    setSearch(search) {
+      if (this.searchTimer) clearTimeout(this.searchTimer);
+      // Debounce typing — don't slam the WS with one message per keystroke.
+      this.searchTimer = setTimeout(() => {
+        this.$stage.send('dashboard.set_filters', { search });
+      }, 200);
+    },
+    toggleComparison() {
+      this.$stage.send('dashboard.set_filters', { show_comparison: !this.filters.show_comparison });
+    },
+    refresh() {
+      // Ask the server for a fresh dataset under the same filters.
+      this.$stage.send('dashboard.set_filters', {});
+    },
+
+    /* --- data application + charts (rendering only, no data gen) ----- */
+    applyData(data) {
+      this.serverData = data;
+      this.$nextTick(() => this.drawAll());
+    },
     chipClass(active) {
       return [
         'chip rounded-full border px-3 py-1 text-sm font-bold transition',
@@ -194,25 +254,8 @@ export default {
         tooltip: { backgroundColor: c.surface, borderColor: c.border, textStyle: { color: c.text } },
       };
     },
-    dataSet() {
-      const ranges = {
-        'Last 7 days': ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
-        'Last 30 days': Array.from({length: 30}, (_, i) => `Day ${i + 1}`),
-        'Last 3 months': Array.from({length: 12}, (_, i) => `Week ${i + 1}`),
-        'Last 12 months': MONTHS,
-        'Year to date': MONTHS,
-      };
-      const labels = ranges[this.dateRange];
-      const base = labels.map((_, i) => 9000 + Math.round(Math.sin(i * 0.8) * 2200 + Math.random() * 1800));
-      const orders = labels.map((_, i) => 120 + Math.round(Math.cos(i * 0.7) * 35 + Math.random() * 40));
-      const products = Object.fromEntries(this.products
-        .filter((p) => this.selectedProducts.includes(p))
-        .filter((p) => !this.searchText || p.toLowerCase().includes(this.searchText.toLowerCase()))
-        .map((p, i) => [p, Math.floor((9000 + i * 3100) * this.scale())]));
-      return { labels, revenue: base.map((v) => Math.floor(v * this.scale())), orders, products };
-    },
     drawAll() {
-      if (!window.echarts) return;
+      if (!window.echarts || !this.serverData) return;
       Object.values(this.charts).forEach((c) => c.dispose());
       this.charts = {};
       this.drawLine();
@@ -226,13 +269,16 @@ export default {
     },
     drawLine() {
       const c = this.colors();
-      const data = this.dataSet();
+      const d = this.serverData;
       const series = [
-        { name: 'Revenue', type: 'line', smooth: true, areaStyle: { opacity: 0.25 }, data: data.revenue, itemStyle: { color: '#3b82f6' } },
-        { name: 'Orders', type: 'line', smooth: true, yAxisIndex: 1, data: data.orders, itemStyle: { color: '#10b981' } },
+        { name: 'Revenue', type: 'line', smooth: true, areaStyle: { opacity: 0.25 }, data: d.revenue,
+          itemStyle: { color: '#3b82f6' } },
+        { name: 'Orders',  type: 'line', smooth: true, yAxisIndex: 1, data: d.orders,
+          itemStyle: { color: '#10b981' } },
       ];
-      if (this.showComparison) {
-        series.push({ name: 'Revenue LY', type: 'line', smooth: true, lineStyle: { type: 'dashed' }, data: data.revenue.map((v) => Math.floor(v * 0.86)), itemStyle: { color: '#60a5fa' } });
+      if (d.revenue_ly) {
+        series.push({ name: 'Revenue LY', type: 'line', smooth: true,
+          lineStyle: { type: 'dashed' }, data: d.revenue_ly, itemStyle: { color: '#60a5fa' } });
       }
       this.charts.line = echarts.init(this.$refs.line);
       this.charts.line.setOption({
@@ -240,7 +286,7 @@ export default {
         tooltip: { ...this.common().tooltip, trigger: 'axis' },
         legend: { ...this.common().legend, top: 5 },
         grid: { left: 50, right: 40, top: 42, bottom: 30 },
-        xAxis: { type: 'category', data: data.labels, axisLine: { lineStyle: { color: c.muted } } },
+        xAxis: { type: 'category', data: d.labels, axisLine: { lineStyle: { color: c.muted } } },
         yAxis: [
           { type: 'value', axisLine: { lineStyle: { color: c.muted } }, splitLine: { lineStyle: { color: c.border } } },
           { type: 'value', axisLine: { lineStyle: { color: c.muted } }, splitLine: { show: false } },
@@ -250,32 +296,46 @@ export default {
     },
     drawBar() {
       const c = this.colors();
-      const data = this.dataSet();
+      const d = this.serverData;
+      const colors = d.product_colors || {};
       this.charts.bar = echarts.init(this.$refs.bar);
       this.charts.bar.setOption({
         ...this.common(),
         tooltip: { ...this.common().tooltip, trigger: 'axis' },
         grid: { left: 50, right: 20, top: 20, bottom: 30 },
-        xAxis: { type: 'category', data: Object.keys(data.products), axisLine: { lineStyle: { color: c.muted } } },
+        xAxis: { type: 'category', data: Object.keys(d.products), axisLine: { lineStyle: { color: c.muted } } },
         yAxis: { type: 'value', splitLine: { lineStyle: { color: c.border } } },
-        series: [{ type: 'bar', data: Object.entries(data.products).map(([k, v]) => ({ value: v, itemStyle: { color: PRODUCT_COLORS[k], borderRadius: [4, 4, 0, 0] } })) }],
+        series: [{
+          type: 'bar',
+          data: Object.entries(d.products).map(([k, v]) => ({
+            value: v,
+            itemStyle: { color: colors[k] || '#6366f1', borderRadius: [4, 4, 0, 0] },
+          })),
+        }],
       });
     },
     drawPie() {
-      const data = this.dataSet();
+      const d = this.serverData;
       this.charts.pie = echarts.init(this.$refs.pie);
       this.charts.pie.setOption({
         ...this.common(),
         tooltip: { ...this.common().tooltip, trigger: 'item' },
-        series: [{ type: 'pie', radius: ['42%', '72%'], label: { show: false }, data: Object.entries(data.products).map(([name, value]) => ({ name, value })) }],
+        series: [{
+          type: 'pie', radius: ['42%', '72%'], label: { show: false },
+          data: Object.entries(d.products).map(([name, value]) => ({ name, value })),
+        }],
       });
     },
     drawRadar() {
+      const d = this.serverData;
       this.charts.radar = echarts.init(this.$refs.radar);
       this.charts.radar.setOption({
         ...this.common(),
-        radar: { indicator: ['Sales', 'Marketing', 'Support', 'Dev', 'Ops'].map((name) => ({ name, max: 100 })), splitLine: { lineStyle: { color: this.colors().border } } },
-        series: [{ type: 'radar', areaStyle: { opacity: 0.2 }, data: this.selectedRegions.slice(0, 3).map((name, i) => ({ name, value: [70 + i * 4, 44 + i * 8, 62, 80 - i * 5, 55 + i * 6] })) }],
+        radar: {
+          indicator: ['Sales', 'Marketing', 'Support', 'Dev', 'Ops'].map((name) => ({ name, max: 100 })),
+          splitLine: { lineStyle: { color: this.colors().border } },
+        },
+        series: [{ type: 'radar', areaStyle: { opacity: 0.2 }, data: d.radar }],
       });
     },
     gaugeOption(value, title, color) {
@@ -299,66 +359,44 @@ export default {
       this.charts.mem.setOption(this.gaugeOption(this.memoryUsage, 'Memory', '#10b981'));
     },
     drawHeatmap() {
-      const hours = Array.from({length: 24}, (_, h) => `${h}:00`);
+      const d = this.serverData;
+      const hours = Array.from({ length: 24 }, (_, h) => `${h}:00`);
       const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      const data = [];
-      for (let d = 0; d < 7; d++) for (let h = 0; h < 24; h++) data.push([h, d, Math.floor(Math.random() * 100)]);
       this.charts.heat = echarts.init(this.$refs.heat);
       this.charts.heat.setOption({
         ...this.common(),
         grid: { left: 48, right: 20, top: 20, bottom: 45 },
         xAxis: { type: 'category', data: hours },
         yAxis: { type: 'category', data: days },
-        visualMap: { min: 0, max: 100, orient: 'horizontal', left: 'center', bottom: 0, textStyle: { color: this.colors().text } },
-        series: [{ type: 'heatmap', data }],
+        visualMap: { min: 0, max: 100, orient: 'horizontal', left: 'center', bottom: 0,
+                     textStyle: { color: this.colors().text } },
+        series: [{ type: 'heatmap', data: d.heat }],
       });
     },
     drawScatter() {
-      const cloud = (cx, cy) => Array.from({length: 36}, () => [cx + Math.random() * 24 - 12, cy + Math.random() * 24 - 12]);
+      const d = this.serverData;
       this.charts.scatter = echarts.init(this.$refs.scatter);
       this.charts.scatter.setOption({
         ...this.common(),
         xAxis: { type: 'value', splitLine: { lineStyle: { color: this.colors().border } } },
         yAxis: { type: 'value', splitLine: { lineStyle: { color: this.colors().border } } },
-        series: [
-          { name: 'Enterprise', type: 'scatter', data: cloud(70, 70) },
-          { name: 'SMB', type: 'scatter', data: cloud(50, 45) },
-          { name: 'Consumer', type: 'scatter', data: cloud(30, 60) },
-        ],
+        series: Object.entries(d.scatter || {}).map(([name, points]) => ({ name, type: 'scatter', data: points })),
       });
     },
     drawCandle() {
-      let price = 100;
-      const data = Array.from({length: 30}, () => {
-        const close = price + Math.random() * 10 - 5;
-        const item = [price, close, Math.min(price, close) - 2, Math.max(price, close) + 2];
-        price = close;
-        return item;
-      });
+      const d = this.serverData;
       this.charts.candle = echarts.init(this.$refs.candle);
       this.charts.candle.setOption({
         ...this.common(),
-        xAxis: { type: 'category', data: data.map((_, i) => `D${i + 1}`) },
+        xAxis: { type: 'category', data: d.candle.map((_, i) => `D${i + 1}`) },
         yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: this.colors().border } } },
-        series: [{ type: 'candlestick', data }],
+        series: [{ type: 'candlestick', data: d.candle }],
       });
-    },
-    refresh() {
-      this.refreshTimestamp();
-      this.drawAll();
     },
     refreshTimestamp() {
       const d = new Date();
-      this.timestamp = d.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' }) + ' · ' + d.toLocaleTimeString();
-    },
-    scale() {
-      return (this.selectedRegions.length / this.regions.length) * (this.selectedProducts.length / this.products.length);
-    },
-    toggle(list, value) {
-      const i = list.indexOf(value);
-      if (i >= 0) list.splice(i, 1);
-      else list.push(value);
-      this.drawAll();
+      this.timestamp = d.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+        + ' · ' + d.toLocaleTimeString();
     },
   },
 };

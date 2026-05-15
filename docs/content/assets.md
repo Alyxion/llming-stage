@@ -111,3 +111,121 @@ supports:
 ```js
 window.__stage.register('lang-de', { js: 'lang/de.umd.prod.js' });
 ```
+
+## Shared hosting & bundle versioning
+
+The whole asset tree under `/_stage/...` is identical for every app
+built against the same `llming-stage` release. When you run many apps
+behind one server, you can host the bytes **once** at a shared mount and
+point every app's shell at it.
+
+### The two version stamps
+
+Two version strings live in `llming_stage`, on purpose distinct:
+
+- **`__version__`** — the Python package version (from `pyproject.toml`).
+  Bumps many times per month for Python-side fixes. **Apps do not pin
+  against this.**
+- **`LIB_VERSION`** — the **vendor-bundle version** (calendar format
+  `YYYY-MM`, e.g. `"2026-05"`). Bumps **only** when a file under
+  `llming_stage/{vendor, fonts, lang, assets}/` is swapped — typically a
+  few times per year. The same string is stamped at the top of
+  `THIRD_PARTY.md`; a test (`tests/test_lib_version_sync.py`) enforces
+  they cannot drift.
+
+An app written against today's Plotly may break under a future Plotly
+3.x. `LIB_VERSION` is what an app pins against to keep its old vendor
+surface alive on a shared host that has been updated.
+
+### Resolution rule
+
+```python
+Stage(app, lib_version="2026-05")
+```
+
+Decision happens at shell-render time, by comparing the pinned string to
+the currently-installed `LIB_VERSION`:
+
+| App pin | Installed `LIB_VERSION` | Shell emits |
+|---------|-------------------------|-------------|
+| `None` (no pin) | any | `/_stage/vendor/…` (latest, current path) |
+| same as installed | matches | `/_stage/vendor/…` (no rewrite) |
+| older than installed | newer | `/_stage/v2026-05/vendor/…` (versioned) |
+
+The latest bundle therefore **always** sits at the current path. Old
+apps only get the `/v<YYYY-MM>/` segment if they pinned an older
+version *and* you chose to keep that bundle published on the shared
+host. Pinning the bundle currently in use is a no-op — encouraged for
+new apps, since the pin only "activates" once that bundle stops being
+the latest.
+
+### Shared-host workflow
+
+The `llming-stage export-assets` CLI dumps the *currently-installed*
+package's vendor bundle as a complete static tree:
+
+```bash
+# 1. Install the current llming-stage and dump it into the unversioned mount
+pip install llming-stage==0.1.5
+llming-stage export-assets --out /var/www/_stage
+
+# 2. When LIB_VERSION later changes, archive the OLD bundle at /v<YYYY-MM>/
+#    BEFORE upgrading the unversioned mount. In a separate venv:
+pip install llming-stage==0.1.5     # the release that ships LIB_VERSION='2026-05'
+llming-stage export-assets --out /var/www/_stage/v2026-05
+
+# 3. Now refresh the unversioned mount with the new bundle
+pip install llming-stage==0.2.0     # ships LIB_VERSION='2026-11'
+llming-stage export-assets --out /var/www/_stage
+```
+
+The dump tree contains `vendor/`, `fonts/`, `lang/`, `llming-com/`,
+`icons/`, `emoji/`, `tabler/`, `loader.js`, `router.js`, and a
+`manifest.json` with `lib_version` and `pkg_version`. Partial dumps are
+not supported — replace the destination whole or not at all. Use
+`--no-manifest` to skip the audit file if you don't want it served.
+
+### Pointing apps at the shared mount
+
+Every app uses the standard `asset_prefix` knob, optionally combined
+with a `lib_version` pin:
+
+```python
+# Same-origin shared subpath, no pin: app always rides the latest bundle.
+Stage(app, asset_prefix="/shared/_stage")
+
+# Pinned to 2026-05: shell emits unversioned URLs while that's still the
+# current bundle; the day 2026-11 ships, this app's shell starts emitting
+# /shared/_stage/v2026-05/... and keeps working.
+Stage(app, asset_prefix="/shared/_stage", lib_version="2026-05")
+```
+
+For self-reporting in the browser, the shell sets
+`window.__stageLibVersion` to the bundle the page is actually loading
+(`LIB_VERSION` when there's no rewrite, the pinned string when there
+is). This is a debug surface — nothing in the runtime reads it.
+
+### What gets pinned
+
+Bundle version pinning is **whole-snapshot**: one `lib_version=` covers
+JS/CSS libraries (Plotly, Three, Mermaid, …), fonts, icon archives,
+locale packs, and the llming-com client JS together. There is no
+per-library or per-category dial today; that's a deliberate
+simplification matched to a real-world cadence (a few refreshes per
+year). Per-category versioning can layer on later without breaking the
+current API.
+
+### Operator caveats
+
+- `Stage.build(out_dir)` refuses when the Stage is pinned to a bundle
+  different from the installed one — the static build can only snapshot
+  the bytes the package actually owns. To archive an older bundle,
+  install that older `llming-stage` into a separate venv and run
+  `llming-stage export-assets`.
+- Pinning a bundle the shared host has **not** published (newer or
+  older) is silent at build time but produces 404s in the browser.
+  Inspect `manifest.json` on each archived directory to audit what's
+  actually live.
+- The `lib_version` string is regex-validated (`\d{4}-\d{2}(-\d+)?`) at
+  `Stage.__init__`. Anything else — semver, slashes, traversal —
+  raises `ValueError` before any URL is built.

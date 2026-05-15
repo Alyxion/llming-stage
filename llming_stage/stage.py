@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import os
 import re
 import shutil
 import uuid
-import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,18 +19,16 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route, WebSocketRoute
 
+from .debug import is_debug_enabled, mount_debug
 from .dev_reload import DevReloadConfig, mount_dev_reload
 from .shell import (
-    _ASSETS_ROOT,
-    _FONTS_ROOT,
-    _LANG_ROOT,
-    _STATIC_ROOT,
-    _VENDOR_ROOT,
-    _llming_com_static_dir,
+    ShellConfig,
+    export_package_assets,
     mount_assets,
     render_shell,
-    ShellConfig,
 )
+
+_LIB_VERSION_RE = re.compile(r"\d{4}-\d{2}(-\d+)?")
 
 _VIEW_EXTENSIONS = {".vue", ".js", ".html", ".htm"}
 
@@ -156,6 +154,14 @@ class StageSession:
         self.session_router = SessionRouter()
         self.application_router = AppRouter()
         self.command_prefix = command_prefix
+        # Grace-period removal: when a WebSocket disconnects we schedule
+        # the session for removal after this many seconds. A reconnect
+        # (e.g. page reload) within the window cancels the task and
+        # keeps the session alive. Longer than a typical reload, shorter
+        # than llming-com's 5-minute idle TTL so the runner reflects
+        # tab-close almost instantly.
+        self.disconnect_grace_seconds = 10.0
+        self._removal_tasks: dict[str, Any] = {}
 
         self._mount_routes()
         self._mount_command_router()
@@ -184,6 +190,35 @@ class StageSession:
         self.application_router.include(child)
         return child
 
+    def _cancel_removal(self, session_id: str) -> None:
+        task = self._removal_tasks.pop(session_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+
+    def _schedule_removal(self, session_id: str) -> None:
+        """Drop *session_id* from the registry after the grace period.
+
+        Cancels any in-flight removal first — repeated disconnects on the
+        same session reset the timer rather than stacking.
+        """
+        self._cancel_removal(session_id)
+
+        async def _drop() -> None:
+            try:
+                await asyncio.sleep(self.disconnect_grace_seconds)
+            except asyncio.CancelledError:
+                return
+            self.registry.remove(session_id)
+            self._removal_tasks.pop(session_id, None)
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No loop — synchronous test path. Remove eagerly.
+            self.registry.remove(session_id)
+            return
+        self._removal_tasks[session_id] = loop.create_task(_drop())
+
     async def require_session(self, request: Request) -> Any:
         """FastAPI dependency returning the current cookie-authenticated session."""
 
@@ -199,15 +234,30 @@ class StageSession:
         from llming_com import run_websocket_session
 
         async def create_session(request: Request) -> JSONResponse:
-            existing = self.auth.get_auth_session_id(request)
-            if existing and self.registry.get_session(existing):
-                session_id = existing
-                token = self.auth.sign_auth_token(session_id)
+            # Per-tab session via `?session=<id>`. Clients (loader.js)
+            # generate a per-tab id stored in sessionStorage and pass it
+            # here so two tabs of the same browser end up with two
+            # distinct sessions. When the hint is registered we reuse
+            # it (tab reload); otherwise we mint a fresh session under
+            # that id. The cookie fallback below kicks in only for
+            # clients that omit the query string.
+            requested = request.query_params.get("session")
+            if requested:
+                if self.registry.get_session(requested):
+                    session_id = requested
+                else:
+                    session_id = str(uuid.uuid4())
+                    entry = self.session_cls(user_id=f"user-{session_id[:8]}")
+                    self.registry.register(session_id, entry)
             else:
-                session_id = str(uuid.uuid4())
-                entry = self.session_cls(user_id=f"user-{session_id[:8]}")
-                self.registry.register(session_id, entry)
-                token = self.auth.sign_auth_token(session_id)
+                existing = self.auth.get_auth_session_id(request)
+                if existing and self.registry.get_session(existing):
+                    session_id = existing
+                else:
+                    session_id = str(uuid.uuid4())
+                    entry = self.session_cls(user_id=f"user-{session_id[:8]}")
+                    self.registry.register(session_id, entry)
+            token = self.auth.sign_auth_token(session_id)
             ws_scheme = "wss" if request.url.scheme == "https" else "ws"
             ws_url = f"{ws_scheme}://{request.url.netloc}/ws/{session_id}"
             resp = JSONResponse({"sessionId": session_id, "wsUrl": ws_url})
@@ -223,6 +273,10 @@ class StageSession:
             session_id = websocket.path_params["session_id"]
 
             async def on_connect(entry: Any, ws: Any) -> None:
+                # A pending disconnect-removal for this session means the
+                # tab just reloaded — cancel the timer and reuse the
+                # entry as if nothing happened.
+                self._cancel_removal(session_id)
                 controller = self.controller_cls(session_id)
                 controller.set_websocket(ws)
                 controller.attach_session(entry)
@@ -235,12 +289,25 @@ class StageSession:
                 if entry.controller is not None:
                     await entry.controller.handle_message(msg)
 
+            async def on_disconnect(sid: str, entry: Any) -> None:
+                # Tab closed / network blip → start a short countdown. A
+                # reconnect inside the grace window cancels it.
+                self._schedule_removal(sid)
+
             await run_websocket_session(
                 websocket,
                 session_id,
                 self.registry,
                 on_connect=on_connect,
                 on_message=on_message,
+                on_disconnect=on_disconnect,
+                # Don't kick the previous WS off when a new one comes in
+                # for the same session id (e.g. two tabs that ended up
+                # with cloned sessionStorage). llming-com's default
+                # supersede behavior + LlmingWebSocket's auto-reconnect
+                # creates a churn loop that drops everything. We rely on
+                # our own 10s disconnect grace for cleanup instead.
+                supersede_existing=False,
             )
 
         self.stage._insert_before_shell(Route("/api/session", create_session))
@@ -340,8 +407,12 @@ class Stage:
         asset_prefix: str = "/_stage",
         dev: bool = True,
         dev_reload: bool | None = None,
+        lib_version: str | None = None,
         **fastapi_kwargs: Any,
     ) -> None:
+        # Late import keeps ``llming_stage.__init__`` free of circular refs.
+        from . import LIB_VERSION
+
         if app is None:
             app = _create_fastapi_app(title=title, kwargs=fastapi_kwargs)
         elif fastapi_kwargs:
@@ -357,12 +428,33 @@ class Stage:
         self.root = root_path.parent if root_path.is_file() else root_path
         self.asset_prefix = asset_prefix.rstrip("/")
         self.dev = dev if dev_reload is None else dev_reload
+
+        if lib_version is not None and not _LIB_VERSION_RE.fullmatch(lib_version):
+            raise ValueError(
+                "lib_version must be calendar format 'YYYY-MM' or 'YYYY-MM-NN', "
+                f"got {lib_version!r}"
+            )
+        self.lib_version = lib_version
+        # Pre-resolved: empty when no rewrite needed (app pinned the current
+        # bundle, or didn't pin at all). Non-empty triggers /v<seg>/ URLs.
+        self._lib_version_segment = (
+            "" if (lib_version is None or lib_version == LIB_VERSION) else lib_version
+        )
+        # The bundle the page actually loads — stamped into the HTML for
+        # debug / self-reporting via window.__stageLibVersion.
+        self._effective_lib_version = (
+            self._lib_version_segment or LIB_VERSION
+        )
+
         self._views: list[_View] = []
         self._shell_routes_mounted = False
 
         self._ensure_assets()
         if self.dev:
             self._ensure_dev_reload()
+        if is_debug_enabled():
+            # mount_debug is idempotent per app+asset_prefix.
+            mount_debug(self.app, asset_prefix=self.asset_prefix)
         state = getattr(self.app, "state", None)
         if state is not None:
             setattr(state, "llming_stage_instance", self)
@@ -490,8 +582,22 @@ class Stage:
         return stage_session
 
     def build(self, out_dir: str | Path) -> Path:
-        """Build a static publish directory for apps without Python backends."""
+        """Build a static publish directory for apps without Python backends.
 
+        Refuses when the Stage is pinned to a bundle different from the
+        installed ``LIB_VERSION``: the build can only snapshot the bytes
+        the installed package actually owns. To archive an older bundle
+        on a shared host, install that older llming-stage version into a
+        venv and run ``llming-stage export-assets --out <dir>``.
+        """
+
+        if self._lib_version_segment:
+            raise RuntimeError(
+                f"Stage.build() cannot snapshot a pinned older bundle "
+                f"(lib_version={self.lib_version!r}); only the installed "
+                f"bundle can be built. Install that version separately and "
+                f"use `llming-stage export-assets` to archive it."
+            )
         out = Path(out_dir).resolve()
         if out.exists():
             shutil.rmtree(out)
@@ -544,15 +650,29 @@ class Stage:
 
     def _ensure_assets(self) -> None:
         state = getattr(self.app, "state", None)
-        flag = f"llming_stage_assets_mounted_{self.asset_prefix}"
+        # Key includes the version segment so two Stage instances with
+        # different lib_version pins can coexist on the same app, each
+        # mounting its own asset tree.
+        flag = (
+            f"llming_stage_assets_mounted_{self.asset_prefix}"
+            f"_v{self._lib_version_segment}"
+        )
         if state is not None and getattr(state, flag, False):
             return
-        mount_assets(self.app, asset_prefix=self.asset_prefix)
+        mount_assets(
+            self.app,
+            asset_prefix=self.asset_prefix,
+            lib_version_segment=self._lib_version_segment,
+        )
         if state is not None:
             setattr(state, flag, True)
 
     def _ensure_dev_reload(self) -> None:
         state = getattr(self.app, "state", None)
+        # Dev-reload always mounts at the unversioned prefix — it's a local
+        # maintenance feature, not an asset. Flag intentionally NOT keyed by
+        # lib_version so a second versioned Stage on the same app won't try
+        # to re-mount it.
         flag = f"llming_stage_dev_mounted_{self.asset_prefix}"
         if state is not None and getattr(state, flag, False):
             return
@@ -588,6 +708,9 @@ class Stage:
                 preload_views=[self._views[0].name] if self._views else [],
                 dev_reload=dev_reload,
                 dev_reload_prefix=f"{self.asset_prefix}/dev",
+                lib_version_segment=self._lib_version_segment,
+                lib_version=self._effective_lib_version,
+                debug_bridge=is_debug_enabled(),
             )
         )
 
@@ -617,21 +740,7 @@ class Stage:
         return path.resolve()
 
     def _build_stage_assets(self, target: Path) -> None:
-        target.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(_STATIC_ROOT, target, dirs_exist_ok=True)
-        shutil.copytree(_VENDOR_ROOT, target / "vendor", dirs_exist_ok=True)
-        shutil.copytree(_FONTS_ROOT, target / "fonts", dirs_exist_ok=True)
-        shutil.copytree(_LANG_ROOT, target / "lang", dirs_exist_ok=True)
-        shutil.copytree(_llming_com_static_dir(), target / "llming-com", dirs_exist_ok=True)
-        archives = {
-            "icons": _ASSETS_ROOT / "phosphor-icons.zip",
-            "emoji": _ASSETS_ROOT / "noto-emoji.zip",
-            "tabler": _ASSETS_ROOT / "tabler-icons.zip",
-        }
-        for dirname, archive in archives.items():
-            if archive.exists():
-                with zipfile.ZipFile(archive) as zf:
-                    zf.extractall(target / dirname)
+        export_package_assets(target, write_manifest=False)
         app_dir = target / "app"
         app_dir.mkdir(exist_ok=True)
         for view in self._views:

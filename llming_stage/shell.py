@@ -8,6 +8,9 @@ critical shell (Mermaid, KaTeX, Plotly, ...) are loaded lazily by
 
 from __future__ import annotations
 
+import json
+import shutil
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -83,11 +86,26 @@ class ShellConfig:
     preload_views: list[str] = field(default_factory=list)
     dev_reload: bool = False
     dev_reload_prefix: str = "/_stage/dev"
+    # When set, every asset URL gets an extra `/v<segment>/` between the
+    # prefix and the category (e.g. /_stage/v2025-11/vendor/...). When
+    # empty (default), URLs stay unversioned — same as the current bundle.
+    # Caller pre-resolves this in Stage by comparing the app's pinned
+    # lib_version to the installed LIB_VERSION.
+    lib_version_segment: str = ""
+    # Stamped into window.__stageLibVersion for self-reporting / debug.
+    # Always reflects the bundle the page is actually loading.
+    lib_version: str = ""
+    # When True, injects the iframe→parent debug bridge so a host runner
+    # can mirror console.* output, eval JS, and introspect loaded
+    # extensions. Stage flips this on when LLMING_STAGE_DEBUG is set.
+    debug_bridge: bool = False
 
 
 def render_shell(config: ShellConfig) -> str:
     """Render the SPA shell HTML document."""
     prefix = config.asset_prefix.rstrip("/")
+    if config.lib_version_segment:
+        prefix = f"{prefix}/v{config.lib_version_segment}"
     view_registrations_js = "\n".join(
         f"  window.__stage.register({_js_str(name)}, {{js: {_js_str(url)}}});"
         for name, url in config.view_modules.items()
@@ -101,6 +119,7 @@ def render_shell(config: ShellConfig) -> str:
         for v in config.preload_views
     )
     dev_reload_html = dev_reload_head(config.dev_reload_prefix) if config.dev_reload else ""
+    debug_bridge_html = _DEBUG_BRIDGE_SCRIPT if config.debug_bridge else ""
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -109,7 +128,8 @@ def render_shell(config: ShellConfig) -> str:
 <title>{_html_escape(config.title)}</title>
 <link rel="stylesheet" href="{prefix}/fonts/fonts.css">
 <link rel="stylesheet" href="{prefix}/vendor/quasar.prod.css">
-<script>window.__stageBase = {_js_str(prefix)};</script>
+<script>window.__stageBase = {_js_str(prefix)};
+window.__stageLibVersion = {_js_str(config.lib_version)};</script>
 <style type="text/tailwindcss">
 @import "tailwindcss/theme";
 @import "tailwindcss/utilities";
@@ -130,6 +150,7 @@ def render_shell(config: ShellConfig) -> str:
 <div id="app-shell">
   <div id="app-shell-view"></div>
 </div>
+{debug_bridge_html}
 <script src="{prefix}/vendor/vue.global.prod.js"></script>
 <script src="{prefix}/vendor/quasar.umd.prod.js"></script>
 <script src="{prefix}/vendor/tailwindcss.browser.global.js"></script>
@@ -167,6 +188,98 @@ def render_shell(config: ShellConfig) -> str:
 """
 
 
+# When ``LLMING_STAGE_DEBUG=1`` is on, this script ships inside every
+# shell render. It activates only when the page is loaded inside an iframe
+# (i.e. by a host runner) — standalone visits remain undisturbed. The
+# bridge: (1) mirrors every console.* call to ``window.parent`` via
+# postMessage so the runner can show a JS console next to the Python one;
+# (2) accepts ``eval`` and ``extensions`` queries from the parent for
+# interactive debugging and lazy-load introspection.
+_DEBUG_BRIDGE_SCRIPT = """<script>
+(function () {
+  if (window.parent === window.self) return;
+  var SRC = 'llming-stage-bridge';
+  var TGT = '*';
+  ['log','info','warn','error','debug'].forEach(function (level) {
+    var orig = console[level].bind(console);
+    console[level] = function () {
+      var args = Array.prototype.slice.call(arguments);
+      orig.apply(null, args);
+      try {
+        var text = args.map(function (a) {
+          if (typeof a === 'string') return a;
+          try { return JSON.stringify(a); } catch (_) { return String(a); }
+        }).join(' ');
+        window.parent.postMessage({source: SRC, type: 'console',
+          level: level, text: text, ts: Date.now()}, TGT);
+      } catch (_) {}
+    };
+  });
+  window.addEventListener('error', function (ev) {
+    try {
+      window.parent.postMessage({source: SRC, type: 'console',
+        level: 'error',
+        text: (ev.message || 'error') + ' @ ' + (ev.filename || '?') + ':' + (ev.lineno || 0),
+        ts: Date.now()}, TGT);
+    } catch (_) {}
+  });
+  window.addEventListener('message', function (ev) {
+    var m = ev.data;
+    if (!m || m.source !== 'llming-stage-runner') return;
+    if (m.type === 'eval') {
+      var ok = true, result, error;
+      try {
+        var f = new Function('return (' + m.code + ');');
+        result = f();
+        if (result && typeof result.then === 'function') {
+          result.then(function (r) {
+            var stringify;
+            try { stringify = (r && typeof r === 'object') ? JSON.stringify(r) : String(r); }
+            catch (_) { stringify = String(r); }
+            window.parent.postMessage({source: SRC, type: 'eval-result',
+              id: m.id, ok: true, result: stringify}, TGT);
+          }, function (e) {
+            window.parent.postMessage({source: SRC, type: 'eval-result',
+              id: m.id, ok: false, error: String(e)}, TGT);
+          });
+          return;
+        }
+        var stringify;
+        try { stringify = (result && typeof result === 'object') ? JSON.stringify(result) : String(result); }
+        catch (_) { stringify = String(result); }
+        result = stringify;
+      } catch (e) { ok = false; error = String(e); }
+      window.parent.postMessage({source: SRC, type: 'eval-result',
+        id: m.id, ok: ok, result: result, error: error}, TGT);
+      return;
+    }
+    if (m.type === 'extensions') {
+      var loaded = (window.__stage && window.__stage.loaded)
+        ? Array.from(window.__stage.loaded) : [];
+      var versions = {};
+      if (window.Vue) versions.vue = window.Vue.version;
+      if (window.Quasar) versions.quasar = window.Quasar.version;
+      if (window.echarts) versions.echarts = window.echarts.version;
+      if (window.Plotly) versions.plotly = window.Plotly.version;
+      if (window.mermaid) versions.mermaid = window.mermaid.version;
+      if (window.marked) versions.marked = window.marked.version;
+      if (window.THREE) versions.three = 'r' + window.THREE.REVISION;
+      if (window.DOMPurify) versions.dompurify = window.DOMPurify.version;
+      if (window.katex) versions.katex = window.katex.version;
+      window.parent.postMessage({source: SRC, type: 'extensions-result',
+        id: m.id, loaded: loaded, versions: versions,
+        stage_base: window.__stageBase, stage_lib_version: window.__stageLibVersion}, TGT);
+      return;
+    }
+  });
+  try {
+    window.parent.postMessage({source: SRC, type: 'ready',
+      stage_base: window.__stageBase, stage_lib_version: window.__stageLibVersion}, TGT);
+  } catch (_) {}
+})();
+</script>"""
+
+
 def _html_escape(text: str) -> str:
     return (
         text.replace("&", "&amp;")
@@ -198,8 +311,11 @@ def _asset_routes(
     icons_archive: ZipArchive | None,
     emoji_archive: ZipArchive | None,
     tabler_archive: ZipArchive | None,
+    lib_version_segment: str = "",
 ) -> list[Route]:
     prefix = asset_prefix.rstrip("/")
+    if lib_version_segment:
+        prefix = f"{prefix}/v{lib_version_segment}"
     routes: list[Route] = []
 
     async def loader_js(request: Request) -> Response:
@@ -260,6 +376,7 @@ def mount_assets(
     icons_zip: Path | None = None,
     emoji_zip: Path | None = None,
     tabler_zip: Path | None = None,
+    lib_version_segment: str = "",
 ) -> None:
     """Mount the llming-stage asset routes onto *app*.
 
@@ -267,6 +384,10 @@ def mount_assets(
     By default, serves the bundled vendor libs, fonts, locale packs, and
     icon/emoji archives from the installed package. Override paths for
     development or to swap in alternate asset sets.
+
+    When ``lib_version_segment`` is non-empty, routes are registered under
+    ``{asset_prefix}/v{lib_version_segment}/...`` instead of the default
+    unversioned tree — used by ``Stage`` when the app pins an older bundle.
     """
     icons_path  = icons_zip  if icons_zip  is not None else _ASSETS_ROOT / "phosphor-icons.zip"
     emoji_path  = emoji_zip  if emoji_zip  is not None else _ASSETS_ROOT / "noto-emoji.zip"
@@ -284,9 +405,62 @@ def mount_assets(
         icons_archive=icons_archive,
         emoji_archive=emoji_archive,
         tabler_archive=tabler_archive,
+        lib_version_segment=lib_version_segment,
     )
     for route in routes:
         app.router.routes.append(route)
+
+
+_ASSET_CATEGORIES = ("vendor", "fonts", "lang", "icons", "emoji", "tabler", "llming-com")
+
+
+def export_package_assets(
+    target: Path,
+    *,
+    write_manifest: bool = True,
+) -> None:
+    """Dump the installed package's vendor bundle into *target*.
+
+    Whole-snapshot dump (vendor + fonts + lang + llming-com client + extracted
+    icon/emoji/tabler archives + loader.js + router.js). Partial dumps are
+    not supported — the operator places the result wherever they want it on
+    the shared host (e.g. ``/var/www/_stage/`` for the current bundle or
+    ``/var/www/_stage/v2026-05/`` to archive an older one).
+
+    When *write_manifest* is true, a ``manifest.json`` is written alongside
+    the assets containing ``lib_version``, ``pkg_version``, and the list of
+    categories present. The manifest is purely for operator-side auditing;
+    nothing at runtime reads it.
+    """
+    target = Path(target)
+    target.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(_STATIC_ROOT, target, dirs_exist_ok=True)
+    shutil.copytree(_VENDOR_ROOT, target / "vendor", dirs_exist_ok=True)
+    shutil.copytree(_FONTS_ROOT, target / "fonts", dirs_exist_ok=True)
+    shutil.copytree(_LANG_ROOT, target / "lang", dirs_exist_ok=True)
+    shutil.copytree(_llming_com_static_dir(), target / "llming-com", dirs_exist_ok=True)
+    archives = {
+        "icons": _ASSETS_ROOT / "phosphor-icons.zip",
+        "emoji": _ASSETS_ROOT / "noto-emoji.zip",
+        "tabler": _ASSETS_ROOT / "tabler-icons.zip",
+    }
+    for dirname, archive in archives.items():
+        if archive.exists():
+            with zipfile.ZipFile(archive) as zf:
+                zf.extractall(target / dirname)
+    if write_manifest:
+        # Late import to avoid a circular reference at package init time.
+        from . import LIB_VERSION, __version__
+
+        manifest = {
+            "lib_version": LIB_VERSION,
+            "pkg_version": __version__,
+            "categories": list(_ASSET_CATEGORIES),
+        }
+        (target / "manifest.json").write_text(
+            json.dumps(manifest, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
 
 def mount_shell(

@@ -383,3 +383,89 @@ def test_stage_root_accepts_file_path(tmp_path: Path) -> None:
     stage = Stage(Starlette(), root=main_py)
 
     assert stage.root == tmp_path
+
+
+# --- Vendor-bundle version pinning ---------------------------------------
+
+
+def test_stage_unpinned_emits_unversioned_urls() -> None:
+    import re
+
+    from llming_stage import LIB_VERSION
+
+    stage = Stage(Starlette(), dev=False)
+    html = stage._render_shell(dev_reload=False)
+    assert re.search(r"/_stage/v\d{4}-\d{2}", html) is None
+    assert f"window.__stageLibVersion = '{LIB_VERSION}'" in html
+
+
+def test_stage_pinned_to_current_lib_version_does_not_rewrite() -> None:
+    """Pinning to the installed bundle is a no-op — URLs stay unversioned."""
+    import re
+
+    from llming_stage import LIB_VERSION
+
+    stage = Stage(Starlette(), dev=False, lib_version=LIB_VERSION)
+    assert stage._lib_version_segment == ""
+    html = stage._render_shell(dev_reload=False)
+    assert re.search(r"/_stage/v\d{4}-\d{2}", html) is None
+    assert f"window.__stageLibVersion = '{LIB_VERSION}'" in html
+
+
+def test_stage_pinned_older_lib_version_rewrites_urls() -> None:
+    stage = Stage(Starlette(), dev=False, lib_version="2024-01")
+    assert stage._lib_version_segment == "2024-01"
+    html = stage._render_shell(dev_reload=False)
+    assert 'src="/_stage/v2024-01/vendor/vue.global.prod.js"' in html
+    assert 'src="/_stage/v2024-01/loader.js"' in html
+    assert '"three": "/_stage/v2024-01/vendor/three.module.min.js"' in html
+    assert '"three/addons/": "/_stage/v2024-01/vendor/"' in html
+    assert "window.__stageBase = '/_stage/v2024-01'" in html
+    assert "window.__stageLibVersion = '2024-01'" in html
+
+
+def test_stage_rejects_malformed_lib_version() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="calendar format"):
+        Stage(Starlette(), lib_version="../etc/passwd")
+    with pytest.raises(ValueError, match="calendar format"):
+        Stage(Starlette(), lib_version="0.1.1")  # semver, not calendar
+    with pytest.raises(ValueError, match="calendar format"):
+        Stage(Starlette(), lib_version="2026/05")
+
+
+def test_stage_accepts_in_month_refresh_suffix() -> None:
+    stage = Stage(Starlette(), dev=False, lib_version="2024-01-02")
+    assert stage._lib_version_segment == "2024-01-02"
+
+
+def test_stage_build_refuses_pinned_older_bundle(tmp_path: Path) -> None:
+    import pytest
+
+    (tmp_path / "views").mkdir()
+    (tmp_path / "views" / "home.vue").write_text(
+        "<template><main>x</main></template>",
+        encoding="utf-8",
+    )
+    stage = Stage(Starlette(), root=tmp_path, dev=False, lib_version="2024-01").discover()
+    with pytest.raises(RuntimeError, match="pinned older bundle"):
+        stage.build(tmp_path / "dist")
+
+
+def test_stage_versioned_mount_registers_versioned_routes() -> None:
+    stage = Stage(Starlette(), dev=False, lib_version="2024-01")
+    paths = [getattr(r, "path", "") for r in stage.app.router.routes]
+    assert any(p == "/_stage/v2024-01/vendor/{path:path}" for p in paths)
+    assert any(p == "/_stage/v2024-01/loader.js" for p in paths)
+    assert any(p == "/_stage/v2024-01/llming-com/{path:path}" for p in paths)
+
+
+def test_two_stages_with_different_pins_coexist() -> None:
+    """Asset-mount flag must include the version segment."""
+    app = Starlette()
+    Stage(app, dev=False, lib_version="2024-01")
+    Stage(app, dev=False, lib_version="2025-06")
+    paths = [getattr(r, "path", "") for r in app.router.routes]
+    assert any(p == "/_stage/v2024-01/vendor/{path:path}" for p in paths)
+    assert any(p == "/_stage/v2025-06/vendor/{path:path}" for p in paths)

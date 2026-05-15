@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from .shell import export_package_assets
 from .stage import Stage
 
 _VIEW_EXTENSIONS = {".vue", ".html", ".htm", ".js"}
@@ -53,7 +54,33 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("root", nargs="?", default=".")
     build.add_argument("--out", default="dist")
 
+    exp = sub.add_parser(
+        "export-assets",
+        help="dump the installed package's vendor bundle for a shared host",
+        description=(
+            "Dumps a complete asset snapshot (vendor JS/CSS, fonts, locale "
+            "packs, icon/emoji/tabler archives, loader.js, router.js, "
+            "llming-com client) of the currently-installed llming-stage "
+            "bundle. Pick --out to point at /_stage/ on a shared host for "
+            "the current bundle, or /_stage/v<YYYY-MM>/ to archive an "
+            "older one. Partial dumps are not supported."
+        ),
+    )
+    exp.add_argument("--out", required=True, help="destination directory")
+    exp.add_argument(
+        "--no-manifest",
+        dest="manifest",
+        action="store_false",
+        default=True,
+        help="skip writing manifest.json next to the asset tree",
+    )
+
     args = parser.parse_args(argv)
+
+    if args.cmd == "export-assets":
+        export_package_assets(Path(args.out).resolve(), write_manifest=args.manifest)
+        return 0
+
     root = Path(args.root).resolve()
 
     if args.cmd == "serve":

@@ -1,5 +1,11 @@
 # Third-Party Resources
 
+**Bundle version:** 2026-05
+
+*(Same string as `llming_stage.LIB_VERSION`. Bump both whenever any vendored
+file or asset listed below is added, removed, or upgraded. A test in
+`tests/test_lib_version_sync.py` enforces sync.)*
+
 All bundled third-party resources and their licenses. This file MUST be updated
 whenever a vendored file or asset is added, removed, or upgraded.
 
