@@ -38,6 +38,9 @@ if is_debug_enabled():
     mount_debug(app)
 ```
 
+`mount_debug()` itself is also env-gated: if `LLMING_STAGE_DEBUG` is
+unset, calling it mounts nothing.
+
 ## Securing the endpoint
 
 The debug endpoint binds to whichever interface the host app binds to.
@@ -58,6 +61,20 @@ ws://host:port/_stage/debug/ws?token=<the-token>
 Connections without a matching token are closed with WebSocket close
 code `4401` before `accept()`, so they never enter the message loop.
 The token comparison uses `hmac.compare_digest`.
+
+The optional iframe runner bridge is separate from the process
+WebSocket. It is injected only when both `LLMING_STAGE_DEBUG=1` and
+`LLMING_STAGE_DEBUG_PARENT_ORIGIN` are set. The latter is a comma-separated
+allow-list of exact parent origins, for example:
+
+```bash
+LLMING_STAGE_DEBUG=1 \
+LLMING_STAGE_DEBUG_PARENT_ORIGIN=http://127.0.0.1:8000,http://localhost:8000 \
+poetry run python main.py
+```
+
+Without that parent-origin allow-list, no iframe `postMessage` bridge is
+served.
 
 ## Protocol
 

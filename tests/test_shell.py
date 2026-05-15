@@ -135,6 +135,23 @@ def test_shell_escapes_js_route_value() -> None:
     assert "register('/\\x3c/script\\x3e'" in html
 
 
+def test_debug_bridge_requires_configured_parent_origin() -> None:
+    without_origin = render_shell(ShellConfig(debug_bridge=True))
+    assert "llming-stage-bridge" not in without_origin
+
+    html = render_shell(
+        ShellConfig(
+            debug_bridge=True,
+            debug_parent_origin="http://127.0.0.1:8000",
+        )
+    )
+    assert "llming-stage-bridge" in html
+    assert "http://127.0.0.1:8000" in html
+    assert "postMessage({source: SRC, type: 'ready'" in html
+    assert "var TGT = '*'" not in html
+    assert "ev.origin !== TGT" in html
+
+
 # --- Vendor-bundle version pinning ---------------------------------------
 
 

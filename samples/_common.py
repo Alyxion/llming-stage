@@ -29,7 +29,7 @@ from typing import Any, Awaitable, Callable
 # low-level compatibility path.
 _VIEW_VERSION = os.environ.get("STAGE_VIEW_VERSION", str(int(time.time() * 1000)))
 
-from fastapi import FastAPI, Request, WebSocket
+from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from llming_com import (
@@ -45,7 +45,7 @@ from llming_com import (
 )
 from llming_com.ws_router import AppRouter, SessionRouter
 
-from llming_stage import ShellConfig, Stage, mount_assets, mount_shell
+from llming_stage import ShellConfig, Stage, is_debug_enabled, mount_assets, mount_shell
 
 
 @dataclass
@@ -56,6 +56,7 @@ class SampleSession(BaseSessionEntry):
     uploaded filenames, chat history, chart data.
     """
 
+    app_type: str = "stage-sample"
     nickname: str = ""
     state: dict[str, Any] = field(default_factory=dict)
 
@@ -96,33 +97,34 @@ def _jsonable(value: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 
-@command(
-    "debug.state",
-    description="Return the session's current state dict.",
-    scope=CommandScope.SESSION,
-    http_method="GET",
-    app="stage-sample",
-)
-async def _debug_state(entry: SampleSession) -> dict[str, Any]:
-    return {
-        "nickname": entry.nickname,
-        "state": _jsonable(entry.state),
-        "controller_ready": entry.controller is not None,
-    }
+if is_debug_enabled():
 
+    @command(
+        "debug.state",
+        description="Return the session's current state dict.",
+        scope=CommandScope.SESSION,
+        http_method="GET",
+        app="stage-sample",
+    )
+    async def _debug_state(entry: SampleSession) -> dict[str, Any]:
+        return {
+            "nickname": entry.nickname,
+            "state": _jsonable(entry.state),
+            "controller_ready": entry.controller is not None,
+        }
 
-@command(
-    "debug.ws_dispatch",
-    description="Dispatch a raw WS message through the session's router.",
-    scope=CommandScope.SESSION,
-    http_method="POST",
-    app="stage-sample",
-)
-async def _debug_ws_dispatch(controller: BaseController, msg: dict) -> dict[str, Any]:
-    if controller is None:
-        return {"ok": False, "error": "no active controller"}
-    await controller.handle_message(msg)
-    return {"ok": True, "dispatched": msg.get("type", "")}
+    @command(
+        "debug.ws_dispatch",
+        description="Dispatch a raw WS message through the session's router.",
+        scope=CommandScope.SESSION,
+        http_method="POST",
+        app="stage-sample",
+    )
+    async def _debug_ws_dispatch(controller: BaseController, msg: dict) -> dict[str, Any]:
+        if controller is None:
+            return {"ok": False, "error": "no active controller"}
+        await controller.handle_message(msg)
+        return {"ok": True, "dispatched": msg.get("type", "")}
 
 
 def bootstrap(
@@ -211,11 +213,39 @@ def bootstrap(
             on_disconnect=on_disconnect,
         )
 
-    # Mount the command router so @command handlers (including the shared
-    # debug.state + debug.ws_dispatch defined above) are reachable over HTTP.
-    # AI agents — and the e2e test suite — drive WebSocket sessions through
-    # /cmd/sessions/{sid}/debug.ws_dispatch without holding the socket.
-    app.include_router(build_command_router(registry, prefix="/cmd"))
+    # Mount the command router only in explicit debug mode. The shared
+    # commands below expose state and raw WS dispatch, so they must never
+    # exist in normal sample runs.
+    if is_debug_enabled():
+        async def command_auth(request: Request) -> SampleSession:
+            auth_session_id = auth.get_auth_session_id(request)
+            if not auth_session_id:
+                raise HTTPException(
+                    status_code=401,
+                    detail="missing or invalid session cookie",
+                )
+            path_session_id = request.path_params.get("session_id")
+            if (
+                path_session_id
+                and path_session_id != "current"
+                and path_session_id != auth_session_id
+            ):
+                raise HTTPException(
+                    status_code=401,
+                    detail="missing or invalid session cookie",
+                )
+            session = registry.get_session(auth_session_id)
+            if session is None:
+                raise HTTPException(status_code=401, detail="session not found")
+            return session
+
+        app.include_router(
+            build_command_router(
+                registry,
+                prefix="/cmd",
+                auth_dependency=command_auth,
+            )
+        )
 
     if view_sources is not None:
         root = static_dir if static_dir is not None else Path.cwd()

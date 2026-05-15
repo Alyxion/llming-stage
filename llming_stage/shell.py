@@ -99,6 +99,9 @@ class ShellConfig:
     # can mirror console.* output, eval JS, and introspect loaded
     # extensions. Stage flips this on when LLMING_STAGE_DEBUG is set.
     debug_bridge: bool = False
+    # Exact parent origin allowed to drive that bridge. Empty disables the
+    # iframe bridge even when process debug mode is on.
+    debug_parent_origin: str = ""
 
 
 def render_shell(config: ShellConfig) -> str:
@@ -119,7 +122,11 @@ def render_shell(config: ShellConfig) -> str:
         for v in config.preload_views
     )
     dev_reload_html = dev_reload_head(config.dev_reload_prefix) if config.dev_reload else ""
-    debug_bridge_html = _DEBUG_BRIDGE_SCRIPT if config.debug_bridge else ""
+    debug_bridge_html = (
+        _debug_bridge_script(config.debug_parent_origin)
+        if config.debug_bridge and config.debug_parent_origin
+        else ""
+    )
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -188,18 +195,23 @@ window.__stageLibVersion = {_js_str(config.lib_version)};</script>
 """
 
 
-# When ``LLMING_STAGE_DEBUG=1`` is on, this script ships inside every
-# shell render. It activates only when the page is loaded inside an iframe
-# (i.e. by a host runner) — standalone visits remain undisturbed. The
-# bridge: (1) mirrors every console.* call to ``window.parent`` via
-# postMessage so the runner can show a JS console next to the Python one;
-# (2) accepts ``eval`` and ``extensions`` queries from the parent for
-# interactive debugging and lazy-load introspection.
-_DEBUG_BRIDGE_SCRIPT = """<script>
+# When ``LLMING_STAGE_DEBUG=1`` and ``LLMING_STAGE_DEBUG_PARENT_ORIGIN``
+# are both set, this script ships inside every shell render. It activates
+# only when the page is loaded inside an iframe by that exact parent
+# origin. The bridge mirrors console.* calls and accepts eval/extensions
+# queries from the configured runner.
+def _debug_bridge_script(parent_origin: str) -> str:
+    return """<script>
 (function () {
   if (window.parent === window.self) return;
   var SRC = 'llming-stage-bridge';
-  var TGT = '*';
+  var ALLOWED = __PARENT_ORIGIN__.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+  var TGT = '';
+  try {
+    var refOrigin = new URL(document.referrer).origin;
+    if (ALLOWED.indexOf(refOrigin) >= 0) TGT = refOrigin;
+  } catch (_) {}
+  if (!TGT) return;
   ['log','info','warn','error','debug'].forEach(function (level) {
     var orig = console[level].bind(console);
     console[level] = function () {
@@ -224,19 +236,10 @@ _DEBUG_BRIDGE_SCRIPT = """<script>
     } catch (_) {}
   });
   window.addEventListener('message', function (ev) {
-    // Only accept messages whose `source` is the *actual* parent
-    // window object. This blocks sibling frames, grandparents, and
-    // any other window from forging an eval message — even when they
-    // know to set m.source = 'llming-stage-runner'.
-    //
-    // The bridge intentionally accepts the parent's origin as-is
-    // (the gallery runs at a different port than the sample, so they
-    // are cross-origin). This is OK because the bridge only activates
-    // when LLMING_STAGE_DEBUG=1 — i.e. the developer explicitly opted
-    // into the runner-controlled surface. In production deployments
-    // the env var stays unset, no bridge is injected, and the eval
-    // path doesn't exist at all.
+    // Only accept messages from the actual parent window and from the
+    // exact origin configured by LLMING_STAGE_DEBUG_PARENT_ORIGIN.
     if (ev.source !== window.parent) return;
+    if (ev.origin !== TGT) return;
     var m = ev.data;
     if (!m || m.source !== 'llming-stage-runner') return;
     if (m.type === 'eval') {
@@ -290,7 +293,7 @@ _DEBUG_BRIDGE_SCRIPT = """<script>
       stage_base: window.__stageBase, stage_lib_version: window.__stageLibVersion}, TGT);
   } catch (_) {}
 })();
-</script>"""
+</script>""".replace("__PARENT_ORIGIN__", _js_str(parent_origin))
 
 
 def _html_escape(text: str) -> str:

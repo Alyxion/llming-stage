@@ -33,6 +33,14 @@ def test_stage_does_not_mount_debug_without_env(monkeypatch: pytest.MonkeyPatch)
     assert "/_stage/debug/ws" not in paths
 
 
+def test_mount_debug_is_noop_without_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LLMING_STAGE_DEBUG", raising=False)
+    app = Starlette()
+    mount_debug(app)
+    paths = [getattr(r, "path", "") for r in app.router.routes]
+    assert "/_stage/debug/ws" not in paths
+
+
 def test_stage_mounts_debug_when_env_set(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LLMING_STAGE_DEBUG", "1")
     stage = Stage(Starlette(), dev=False)
@@ -193,6 +201,27 @@ def test_unknown_query_returns_available_list(debug_client: TestClient) -> None:
     assert "available" in msg
     assert "info" in msg["available"]
     assert "metrics" in msg["available"]
+
+
+def test_session_record_includes_heartbeat_status() -> None:
+    import time
+    from types import SimpleNamespace
+
+    entry = SimpleNamespace(
+        user_id="user-1",
+        state={},
+        controller=object(),
+        created_at=time.monotonic(),
+        last_activity=time.monotonic(),
+        last_heartbeat=time.monotonic(),
+    )
+
+    record = debug_mod._session_record("sid-1", entry)
+
+    assert record["last_heartbeat"] is not None
+    assert record["heartbeat_age_seconds"] >= 0
+    assert record["heartbeat_timeout_seconds"] > 0
+    assert record["heartbeat_status"] == "alive"
 
 
 def test_token_rejects_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:

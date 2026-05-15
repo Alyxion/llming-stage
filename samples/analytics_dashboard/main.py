@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import os
 import random
 from dataclasses import dataclass, field
 from typing import Any
@@ -160,7 +161,11 @@ def _session_rng(session: Session) -> random.Random:
 
 
 app = FastAPI()
-stage = Stage(app, title="Analytics Dashboard")
+stage = Stage(
+    app,
+    title="Analytics Dashboard",
+    dev=os.environ.get("STAGE_DEV", "1") != "0",
+)
 sessions = stage.session(app_name="dashboard", session_cls=Session)
 dashboard = sessions.add_router("dashboard")
 

@@ -56,6 +56,27 @@ def test_gallery_switches_between_samples(gallery_server, page: Page) -> None:
     ).to_contain_text("counter", timeout=15_000)
 
 
+def test_gallery_switch_replaces_iframe_document(gallery_server, page: Page) -> None:
+    base, _ = gallery_server
+    page.goto(base)
+
+    page.locator("[data-sample='analytics_dashboard']").click()
+    expect(page.locator("[data-test='current']")).to_contain_text(
+        "analytics_dashboard", timeout=20_000
+    )
+    expect(
+        page.frame_locator("[data-test='frame']").locator("h1").first
+    ).to_contain_text("Analytics Dashboard", timeout=20_000)
+
+    page.locator("[data-sample='extension_workbench']").click()
+    expect(page.locator("[data-test='current']")).to_contain_text(
+        "extension_workbench", timeout=20_000
+    )
+    expect(
+        page.frame_locator("[data-test='frame']").locator("h1").first
+    ).to_contain_text("Extension workbench", timeout=20_000)
+
+
 def test_gallery_stop_button(gallery_server, page: Page) -> None:
     base, _ = gallery_server
     page.goto(base)
@@ -94,6 +115,49 @@ def test_iframe_fills_content_area(gallery_server, page: Page) -> None:
     assert box["height"] >= 600, f"iframe is too short: {box}"
     # And wide — drawer ~320, page ~960.
     assert box["width"] >= 700, f"iframe is too narrow: {box}"
+
+
+def test_gallery_sessions_are_selectable_and_show_heartbeat(gallery_server, page: Page) -> None:
+    import re
+
+    base, _ = gallery_server
+    page.goto(base)
+    page.locator("[data-sample='counter']").click()
+    expect(page.locator("[data-test='current']")).to_contain_text(
+        "counter", timeout=20_000
+    )
+    page.locator("[data-test='btn-debug']").click()
+    page.get_by_text("Sessions").click()
+
+    row = page.locator(".rn-session-row").first
+    expect(row).to_be_visible(timeout=15_000)
+    expect(page.locator(".rn-session-row--active")).to_have_count(1, timeout=5_000)
+    expect(page.locator(".rn-kv-key", has_text="life_sign")).to_be_visible(timeout=5_000)
+    expect(row).to_contain_text(re.compile(r"(alive \d+s|timeout)"), timeout=5_000)
+    expect(row).not_to_contain_text("last", timeout=5_000)
+
+    row.click()
+    expect(page.locator(".rn-session-row--active")).to_have_count(1, timeout=5_000)
+    expect(page.locator(".rn-section-header").first).to_contain_text(
+        re.compile(r"[0-9a-f-]{8,}"), timeout=5_000
+    )
+
+
+def test_gallery_debug_pane_does_not_auto_show(gallery_server, page: Page) -> None:
+    base, _ = gallery_server
+    page.add_init_script(
+        "() => localStorage.setItem('gallery-debug-drawer', '1')"
+    )
+    page.goto(base)
+    page.locator("[data-sample='counter']").click()
+    expect(page.locator("[data-test='current']")).to_contain_text(
+        "counter", timeout=20_000
+    )
+    expect(page.locator("[data-test='btn-debug']")).to_be_visible(timeout=15_000)
+    expect(page.locator(".rn-debug")).to_have_count(0)
+
+    page.locator("[data-test='btn-debug']").click()
+    expect(page.locator(".rn-debug")).to_be_visible(timeout=5_000)
 
 
 def test_sample_inherits_dark_mode(gallery_server, page: Page) -> None:

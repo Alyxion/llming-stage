@@ -46,6 +46,7 @@ _ENV_TOKEN = "LLMING_STAGE_DEBUG_TOKEN"
 
 _BUFFER_LINES = 1000
 _DEFAULT_TAIL = 200
+_DEFAULT_HEARTBEAT_TTL = 120.0
 
 _FALSY = {"", "0", "false", "no", "off"}
 
@@ -345,11 +346,28 @@ def _session_record(session_id: str, entry: Any) -> dict[str, Any]:
     # column instead of an empty cell.
     last_seen_mono = pick_mono("last_seen", "last_message_at", "updated_at", "last_activity")
     created_at_mono = pick_mono("created_at", "registered_at", "last_activity")
+    last_heartbeat_mono = pick_mono("last_heartbeat")
+    heartbeat_age = (
+        time.monotonic() - last_heartbeat_mono
+        if last_heartbeat_mono is not None
+        else None
+    )
+    try:
+        from llming_com.session import DEFAULT_HEARTBEAT_TTL
+    except Exception:
+        DEFAULT_HEARTBEAT_TTL = _DEFAULT_HEARTBEAT_TTL
+    heartbeat_timeout = (
+        heartbeat_age is None or heartbeat_age > float(DEFAULT_HEARTBEAT_TTL)
+    )
     return {
         "session_id": session_id,
         "user_id": getattr(entry, "user_id", None),
         "last_seen": _mono_to_epoch(last_seen_mono),
         "created_at": _mono_to_epoch(created_at_mono),
+        "last_heartbeat": _mono_to_epoch(last_heartbeat_mono),
+        "heartbeat_age_seconds": heartbeat_age,
+        "heartbeat_timeout_seconds": float(DEFAULT_HEARTBEAT_TTL),
+        "heartbeat_status": "timeout" if heartbeat_timeout else "alive",
         "controller_ready": getattr(entry, "controller", None) is not None,
         "state_keys": state_keys,
     }
@@ -529,6 +547,8 @@ def mount_debug(app: Any, *, asset_prefix: str = "/_stage") -> None:
     automatically when ``LLMING_STAGE_DEBUG`` is truthy; callers using
     ``mount_assets`` directly can call this themselves.
     """
+    if not is_debug_enabled():
+        return
     install_stream_capture()
     state = getattr(app, "state", None)
     flag = f"llming_stage_debug_mounted_{asset_prefix}"

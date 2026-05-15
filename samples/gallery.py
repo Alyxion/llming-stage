@@ -18,6 +18,7 @@ import signal
 import socket
 import subprocess
 import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -108,6 +109,55 @@ def _port_open(port: int) -> bool:
         s.close()
 
 
+def _listener_pids(port: int) -> list[int]:
+    try:
+        result = subprocess.run(
+            ["lsof", f"-tiTCP:{port}", "-sTCP:LISTEN"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, OSError):
+        return []
+    pids: list[int] = []
+    for line in result.stdout.splitlines():
+        try:
+            pid = int(line.strip())
+        except ValueError:
+            continue
+        if pid != os.getpid():
+            pids.append(pid)
+    return pids
+
+
+async def _wait_port_closed(port: int, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not _port_open(port):
+            return True
+        await asyncio.sleep(0.1)
+    return not _port_open(port)
+
+
+async def _reclaim_sample_port() -> bool:
+    pids = _listener_pids(SAMPLE_PORT)
+    if not pids:
+        return False
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    if await _wait_port_closed(SAMPLE_PORT, 5):
+        return True
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    return await _wait_port_closed(SAMPLE_PORT, 5)
+
+
 class SampleRunner:
     """Owns at most one running sample subprocess.
 
@@ -126,11 +176,22 @@ class SampleRunner:
             if self.current == name and self.proc and self.proc.poll() is None:
                 return
             await self._stop_unlocked()
+            if _port_open(SAMPLE_PORT) and not await _reclaim_sample_port():
+                raise RuntimeError(
+                    f"port {SAMPLE_PORT} is already in use by another process"
+                )
             main_py = HERE / name / "main.py"
             sample_dir = HERE / name
             if not _is_sample_dir(sample_dir):
                 raise FileNotFoundError(name)
-            env = {**os.environ, "PORT": str(SAMPLE_PORT)}
+            env = {
+                **os.environ,
+                "PORT": str(SAMPLE_PORT),
+                "LLMING_STAGE_DEBUG": "1",
+                "LLMING_STAGE_DEBUG_PARENT_ORIGIN": (
+                    f"http://127.0.0.1:{GALLERY_PORT},http://localhost:{GALLERY_PORT}"
+                ),
+            }
             command = (
                 [sys.executable, str(main_py)]
                 if main_py.is_file()
@@ -627,6 +688,16 @@ _INDEX_HTML = r"""<!doctype html>
     color: var(--rn-positive);
     background: rgba(16,185,129,0.12);
   }
+  .rn-session-flag--timeout {
+    color: #f59e0b;
+    background: rgba(245,158,11,0.12);
+  }
+  .rn-heartbeat {
+    color: var(--rn-positive);
+  }
+  .rn-heartbeat--timeout {
+    color: #f59e0b;
+  }
   .rn-kv {
     display: flex;
     padding: 4px 14px;
@@ -682,8 +753,8 @@ _INDEX_HTML = r"""<!doctype html>
         <img v-if="logoUrl" :src="logoUrl" class="rn-logo" alt="llming-stage" />
         <q-toolbar-title class="row items-center no-wrap">
           <div class="rn-title">
-            <span class="rn-title-main">llming-stage</span>
-            <span class="rn-title-sub">Sample Gallery</span>
+            <span class="rn-title-main">llming-stage gallery</span>
+            <span class="rn-title-sub">Sample runner</span>
           </div>
           <span v-if="current" class="rn-current" :data-test="'current'">{{ current }}</span>
         </q-toolbar-title>
@@ -696,7 +767,7 @@ _INDEX_HTML = r"""<!doctype html>
         <q-btn v-if="debugAvailable" flat dense round icon="bug_report"
                aria-label="toggle debug panel"
                :style="debugDrawer ? { color: 'var(--rn-positive)' } : {}"
-               @click="debugDrawer = !debugDrawer" data-test="btn-debug">
+               @click="toggleDebugDrawer" data-test="btn-debug">
           <q-tooltip>Debug pane ({{ debugStatus }})</q-tooltip>
         </q-btn>
         <q-btn flat dense round :icon="dark ? 'light_mode' : 'dark_mode'"
@@ -730,7 +801,7 @@ _INDEX_HTML = r"""<!doctype html>
           {{ error }}
         </q-banner>
         <div class="col relative-position">
-          <iframe v-if="iframeSrc" :src="iframeSrc" class="absolute-full full-width full-height no-border transparent"
+          <iframe v-if="iframeSrc" :key="iframeKey" :src="iframeSrc" class="absolute-full full-width full-height no-border transparent"
                   id="frame" data-test="frame"></iframe>
           <div v-else-if="busy" class="absolute-full column items-center justify-center text-center q-pa-lg q-gutter-sm">
             <q-spinner color="primary" size="32px"></q-spinner>
@@ -884,25 +955,34 @@ _INDEX_HTML = r"""<!doctype html>
                       here automatically.
                     </div>
                   </div>
-                  <div v-for="s in sessions" :key="s.session_id"
+	                  <div v-for="s in displaySessions" :key="s.session_id"
                        class="rn-session-row"
                        :class="activeSessionId === s.session_id ? 'rn-session-row--active' : ''"
-                       @click="openSession(s.session_id)">
+                       role="button"
+                       tabindex="0"
+                       @click="openSession(s.session_id, { row: s })"
+                       @keyup.enter="openSession(s.session_id, { row: s })">
                     <div class="row no-wrap items-center">
                       <span class="rn-session-id">{{ s.session_id.slice(0, 12) }}</span>
                       <q-space />
                       <span class="rn-session-flag" :class="s.controller_ready ? 'rn-session-flag--on' : ''">
                         {{ s.controller_ready ? 'ws' : '—' }}
                       </span>
+                      <span class="rn-session-flag q-ml-xs"
+                            :class="heartbeatClass(s)">
+                        {{ heartbeatLabel(s) }}
+                      </span>
                     </div>
-                    <div class="rn-sub">
-                      <span v-if="s.user_id">{{ s.user_id }}</span>
-                      <span v-if="s.last_seen">  · last {{ fmtTs(s.last_seen) }}</span>
-                    </div>
+	                    <div class="rn-sub">
+	                      <span v-if="s.user_id">{{ s.user_id }}</span>
+	                      <span class="rn-heartbeat" :class="heartbeatClass(s)">
+	                        · {{ s.heartbeat_text }}
+	                      </span>
+	                    </div>
                   </div>
                 </q-scroll-area>
               </div>
-              <div class="col column" style="min-width: 0;">
+	              <div class="col column" style="min-width: 0; position: relative;">
                 <q-scroll-area v-if="activeSessionDetail" class="col">
                   <div class="rn-section-header">{{ activeSessionId }}</div>
                   <div v-if="activeSessionDetail.error" class="rn-list-row rn-dim">
@@ -917,14 +997,20 @@ _INDEX_HTML = r"""<!doctype html>
                       <span class="rn-kv-key">controller_ready</span>
                       <span class="rn-kv-value">{{ activeSessionDetail.record?.controller_ready ? 'yes' : 'no' }}</span>
                     </div>
-                    <div class="rn-kv" v-if="activeSessionDetail.record?.last_seen">
-                      <span class="rn-kv-key">last_seen</span>
-                      <span class="rn-kv-value">{{ fmtTs(activeSessionDetail.record.last_seen) }}</span>
-                    </div>
-                    <div class="rn-kv" v-if="activeSessionDetail.record?.created_at">
-                      <span class="rn-kv-key">created_at</span>
-                      <span class="rn-kv-value">{{ fmtTs(activeSessionDetail.record.created_at) }}</span>
-                    </div>
+	                    <div class="rn-kv" v-if="activeSessionDetail.record?.last_seen">
+	                      <span class="rn-kv-key">last_seen</span>
+	                      <span class="rn-kv-value">{{ fmtTs(activeSessionDetail.record.last_seen) }}</span>
+	                    </div>
+	                    <div class="rn-kv" v-if="activeSessionDisplay?.record?.last_heartbeat">
+	                      <span class="rn-kv-key">life_sign</span>
+	                      <span class="rn-kv-value">
+	                        {{ activeSessionDisplay.record.heartbeat_text }}
+	                      </span>
+	                    </div>
+	                    <div class="rn-kv" v-if="activeSessionDetail.record?.created_at">
+	                      <span class="rn-kv-key">created_at</span>
+	                      <span class="rn-kv-value">{{ fmtTs(activeSessionDetail.record.created_at) }}</span>
+	                    </div>
                     <div class="rn-section-header" style="margin-top: 8px;">state</div>
                     <pre class="rn-state">{{ JSON.stringify(activeSessionDetail.state || {}, null, 2) }}</pre>
                   </template>
@@ -957,9 +1043,11 @@ _INDEX_HTML = r"""<!doctype html>
       const PREF = {
         sample:       'gallery-sample',
         debugTab:     'gallery-debug-tab',
-        debugDrawer:  'gallery-debug-drawer',
         consoleMode:  'gallery-console-mode',
       };
+      const IDB_NAME = 'llming-stage-gallery';
+      const IDB_STORE = 'prefs';
+      const IDB_DEBUG_DRAWER = 'debug-drawer-open';
       function loadPref(key, fallback) {
         try {
           const v = localStorage.getItem(key);
@@ -972,6 +1060,38 @@ _INDEX_HTML = r"""<!doctype html>
       function clearPref(key) {
         try { localStorage.removeItem(key); } catch (_) {}
       }
+      function openPrefsDb() {
+        return new Promise((resolve, reject) => {
+          if (!window.indexedDB) {
+            reject(new Error('IndexedDB unavailable'));
+            return;
+          }
+          const req = indexedDB.open(IDB_NAME, 1);
+          req.onupgradeneeded = () => {
+            req.result.createObjectStore(IDB_STORE);
+          };
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error || new Error('IndexedDB open failed'));
+        });
+      }
+      function idbPrefGet(key, fallback) {
+        return openPrefsDb().then((db) => new Promise((resolve) => {
+          const tx = db.transaction(IDB_STORE, 'readonly');
+          const req = tx.objectStore(IDB_STORE).get(key);
+          req.onsuccess = () => resolve(req.result === undefined ? fallback : req.result);
+          req.onerror = () => resolve(fallback);
+          tx.oncomplete = () => db.close();
+          tx.onerror = () => db.close();
+        })).catch(() => fallback);
+      }
+      function idbPrefSet(key, value) {
+        return openPrefsDb().then((db) => new Promise((resolve) => {
+          const tx = db.transaction(IDB_STORE, 'readwrite');
+          tx.objectStore(IDB_STORE).put(value, key);
+          tx.oncomplete = () => { db.close(); resolve(); };
+          tx.onerror = () => { db.close(); resolve(); };
+        })).catch(() => {});
+      }
 
       const samples = ref([]);
       const current = ref(null);
@@ -979,8 +1099,9 @@ _INDEX_HTML = r"""<!doctype html>
       const status = ref('idle');
       const error = ref('');
       const iframeSrc = ref(null);
+      const iframeKey = ref(0);
       const drawer = ref(true);
-      const debugDrawer = ref(loadPref(PREF.debugDrawer, '1') === '1');
+      const debugDrawer = ref(false);
 
       // --- Debug WS state ---
       const debugAvailable = ref(false);   // true once a WS open succeeded
@@ -1005,9 +1126,10 @@ _INDEX_HTML = r"""<!doctype html>
       const stdout = ref([]);
       const sessions = ref([]);
       const sessionsAvailable = ref(true);
-      const activeSessionId = ref(null);
-      const activeSessionDetail = ref(null);
-      const sessionsRefreshedAt = ref(0);
+	      const activeSessionId = ref(null);
+	      const activeSessionDetail = ref(null);
+	      const sessionsRefreshedAt = ref(0);
+	      const nowTick = ref(Date.now());
 
       // Console — interleaved Python stdout + JS console + eval echoes.
       const jsLog = ref([]);            // {kind: 'js'|'eval-in'|'eval-out'|'eval-err', level?, text, ts}
@@ -1032,8 +1154,8 @@ _INDEX_HTML = r"""<!doctype html>
         return out;
       });
 
-      const stdoutText = computed(() => {
-        if (!consoleEntries.value.length) return '(no output captured yet)';
+	      const stdoutText = computed(() => {
+	        if (!consoleEntries.value.length) return '(no output captured yet)';
         return consoleEntries.value.map(e => {
           let tag;
           if (e.kind === 'py') tag = '[PY]';
@@ -1041,23 +1163,60 @@ _INDEX_HTML = r"""<!doctype html>
           else if (e.kind === 'eval-out') tag = '← ';
           else if (e.kind === 'eval-err') tag = '✗ ';
           else tag = '[JS' + (e.level === 'error' ? '!' : e.level === 'warn' ? '*' : '') + ']';
-          return tag + (tag.length === 2 ? '' : ' ') + e.text;
-        }).join('\n');
-      });
+	          return tag + (tag.length === 2 ? '' : ' ') + e.text;
+	        }).join('\n');
+	      });
+	      const displaySessions = computed(() => {
+	        nowTick.value;
+	        return sessions.value.map((s) => ({
+	          ...s,
+	          heartbeat_text: heartbeatSeconds(s),
+	        }));
+	      });
+	      const activeSessionDisplay = computed(() => {
+	        nowTick.value;
+	        const detail = activeSessionDetail.value;
+	        if (!detail || !detail.record) return detail;
+	        return {
+	          ...detail,
+	          record: {
+	            ...detail.record,
+	            heartbeat_text: heartbeatSeconds(detail.record),
+	          },
+	        };
+	      });
 
       const consoleEl = ref(null);
-      let debugWs = null;
-      let metricsTimer = null;
-      let consoleTimer = null;
-      let sessionsTimer = null;
-      let nextId = 1;
-      const pending = new Map();
+	      let debugWs = null;
+	      let metricsTimer = null;
+	      let consoleTimer = null;
+	      let sessionsTimer = null;
+	      let nowTimer = null;
+	      let nextId = 1;
+	      let sessionDetailSeq = 1;
+	      const pending = new Map();
       const shortFile = (f) => f ? f.split('/').slice(-2).join('/') : '?';
-      const fmtTs = (ts) => {
-        if (!ts) return '';
-        const d = new Date(typeof ts === 'number' && ts < 1e12 ? ts * 1000 : ts);
-        return d.toLocaleTimeString();
-      };
+	      const fmtTs = (ts) => {
+	        if (!ts) return '';
+	        const d = new Date(typeof ts === 'number' && ts < 1e12 ? ts * 1000 : ts);
+	        return d.toLocaleTimeString();
+	      };
+	      const heartbeatAgeSeconds = (s) => {
+	        if (!s || !s.last_heartbeat) return null;
+	        const ts = s.last_heartbeat < 1e12 ? s.last_heartbeat * 1000 : s.last_heartbeat;
+	        return Math.max(0, Math.round((nowTick.value - ts) / 1000));
+	      };
+	      const heartbeatLabel = (s) =>
+	        s && s.heartbeat_status === 'alive' ? 'alive' : 'timeout';
+	      const heartbeatClass = (s) =>
+	        s && s.heartbeat_status === 'alive'
+	          ? 'rn-session-flag--on'
+	          : 'rn-session-flag--timeout rn-heartbeat--timeout';
+	      const heartbeatSeconds = (s) => {
+	        if (!s || s.heartbeat_status !== 'alive') return 'timeout';
+	        const age = heartbeatAgeSeconds(s);
+	        return age === null ? 'timeout' : 'alive ' + age + 's';
+	      };
 
       // --- Always scroll the console pane to the bottom after content updates.
       function scrollConsoleBottom() {
@@ -1071,7 +1230,7 @@ _INDEX_HTML = r"""<!doctype html>
       function postToIframe(payload) {
         const f = document.getElementById('frame');
         if (!f || !f.contentWindow) return;
-        f.contentWindow.postMessage({ ...payload, source: 'llming-stage-runner' }, '*');
+        f.contentWindow.postMessage({ ...payload, source: 'llming-stage-runner' }, sampleOrigin);
       }
 
       window.addEventListener('message', (ev) => {
@@ -1165,7 +1324,13 @@ _INDEX_HTML = r"""<!doctype html>
       // background.
       const freshUrl = () =>
         sampleOrigin + '/?_t=' + Date.now() +
-        '&stage_dark=' + (dark.value ? '1' : '0');
+        '&stage_dark=' + (dark.value ? '1' : '0') +
+        '&gallery_sample=' + encodeURIComponent(current.value || '');
+
+      function showFrame() {
+        iframeKey.value += 1;
+        iframeSrc.value = freshUrl();
+      }
 
       const toggleDark = () => {
         dark.value = !dark.value;
@@ -1173,7 +1338,7 @@ _INDEX_HTML = r"""<!doctype html>
         localStorage.setItem('gallery-dark', String(dark.value));
         // Reload iframe with the new theme param so the running sample
         // flips too.
-        if (current.value) iframeSrc.value = freshUrl();
+        if (current.value) showFrame();
       };
 
       function sendQ(q, args) {
@@ -1215,27 +1380,41 @@ _INDEX_HTML = r"""<!doctype html>
       async function fetchSessions() {
         try {
           const r = await sendQ('sessions');
-          sessionsAvailable.value = !!(r.data && r.data.available);
-          sessions.value = (r.data && r.data.sessions) || [];
-          sessionsRefreshedAt.value = Date.now();
-          // Refresh the open detail when its session is still in the list.
-          if (activeSessionId.value) {
-            const still = sessions.value.find(s => s.session_id === activeSessionId.value);
-            if (!still) { activeSessionId.value = null; activeSessionDetail.value = null; }
-            else { openSession(activeSessionId.value); }  // refresh detail too
-          }
-        } catch (_) {}
-      }
-      async function openSession(sid) {
-        activeSessionId.value = sid;
-        activeSessionDetail.value = null;
-        try {
-          const r = await sendQ('session_state', { session_id: sid });
-          activeSessionDetail.value = r.data || null;
-        } catch (_) {
-          activeSessionDetail.value = { error: 'fetch failed' };
-        }
-      }
+	          sessionsAvailable.value = !!(r.data && r.data.available);
+	          sessions.value = (r.data && r.data.sessions) || [];
+	          sessionsRefreshedAt.value = Date.now();
+	          // Auto-open the sole session so single-app debugging shows
+	          // useful detail immediately. Refresh the open detail without
+	          // blanking it while the request is in flight.
+	          if (!activeSessionId.value && sessions.value.length === 1) {
+	            await openSession(sessions.value[0].session_id, { row: sessions.value[0] });
+	            return;
+	          }
+	          if (activeSessionId.value) {
+	            const still = sessions.value.find(s => s.session_id === activeSessionId.value);
+	            if (!still) { activeSessionId.value = null; activeSessionDetail.value = null; }
+	            else { await openSession(activeSessionId.value, { row: still, refresh: true }); }
+	          }
+	        } catch (_) {}
+	      }
+	      async function openSession(sid, options = {}) {
+	        const row = options.row || sessions.value.find(s => s.session_id === sid) || null;
+	        const seq = sessionDetailSeq++;
+	        activeSessionId.value = sid;
+	        if (!options.refresh || !activeSessionDetail.value) {
+	          activeSessionDetail.value = row
+	            ? { record: row, state: {}, loading: true }
+	            : { record: { session_id: sid }, state: {}, loading: true };
+	        }
+	        try {
+	          const r = await sendQ('session_state', { session_id: sid });
+	          if (seq !== sessionDetailSeq - 1 || activeSessionId.value !== sid) return;
+	          activeSessionDetail.value = r.data || null;
+	        } catch (_) {
+	          if (activeSessionId.value !== sid) return;
+	          activeSessionDetail.value = { error: 'fetch failed' };
+	        }
+	      }
 
       // Per-tab polling lifecycle: only the active tab generates traffic.
       function applyTabPolling() {
@@ -1271,12 +1450,16 @@ _INDEX_HTML = r"""<!doctype html>
         applyTabPolling();
       }
 
+      function toggleDebugDrawer() {
+        debugDrawer.value = !debugDrawer.value;
+        idbPrefSet(IDB_DEBUG_DRAWER, debugDrawer.value);
+      }
+
       // Re-evaluate polling whenever the pane is toggled.
       watch(debugDrawer, applyTabPolling);
 
       // Persist UI state.
       watch(activeDebugTab, (v) => savePref(PREF.debugTab, v));
-      watch(debugDrawer,    (v) => savePref(PREF.debugDrawer, v ? '1' : '0'));
       watch(consoleMode,    (v) => savePref(PREF.consoleMode, v));
 
       // Each iframe reload reboots the JS context, so the browser-side log
@@ -1290,10 +1473,11 @@ _INDEX_HTML = r"""<!doctype html>
         extensions.value = { loaded: [], versions: {}, stage_base: '', stage_lib_version: '' };
       });
 
-      function disconnectDebug() {
-        if (metricsTimer)  { clearInterval(metricsTimer);  metricsTimer = null; }
-        if (consoleTimer)  { clearInterval(consoleTimer);  consoleTimer = null; }
-        if (sessionsTimer) { clearInterval(sessionsTimer); sessionsTimer = null; }
+	      function disconnectDebug() {
+	        if (metricsTimer)  { clearInterval(metricsTimer);  metricsTimer = null; }
+	        if (consoleTimer)  { clearInterval(consoleTimer);  consoleTimer = null; }
+	        if (sessionsTimer) { clearInterval(sessionsTimer); sessionsTimer = null; }
+	        if (nowTimer)      { clearInterval(nowTimer);      nowTimer = null; }
         if (debugWs) {
           try { debugWs.close(); } catch (_) {}
           debugWs = null;
@@ -1331,10 +1515,12 @@ _INDEX_HTML = r"""<!doctype html>
         const url = `${wsScheme}://${location.hostname}:${SAMPLE_PORT}/_stage/debug/ws`;
         const ws = new WebSocket(url);
         debugWs = ws;
-        ws.onopen = () => {
-          debugAvailable.value = true;
-          debugReady.value = true;
-          debugStatus.value = 'connected';
+	        ws.onopen = () => {
+	          debugAvailable.value = true;
+	          debugReady.value = true;
+	          debugStatus.value = 'connected';
+	          nowTick.value = Date.now();
+	          nowTimer = setInterval(() => { nowTick.value = Date.now(); }, 1000);
           // One-shot info fetch on connect (cheap, static for lifetime).
           fetchInfo();
           // Always kick the active tab's polling immediately.
@@ -1358,9 +1544,11 @@ _INDEX_HTML = r"""<!doctype html>
           // Don't surface as a visible error — debug may simply be off.
           debugStatus.value = 'unavailable';
         };
-        ws.onclose = () => {
-          if (metricsTimer) { clearInterval(metricsTimer); metricsTimer = null; }
-          if (consoleTimer) { clearInterval(consoleTimer); consoleTimer = null; }
+	        ws.onclose = () => {
+	          if (metricsTimer) { clearInterval(metricsTimer); metricsTimer = null; }
+	          if (consoleTimer) { clearInterval(consoleTimer); consoleTimer = null; }
+	          if (sessionsTimer) { clearInterval(sessionsTimer); sessionsTimer = null; }
+	          if (nowTimer) { clearInterval(nowTimer); nowTimer = null; }
           if (debugReady.value) debugStatus.value = 'closed';
           debugReady.value = false;
           // Keep debugAvailable=true so the toggle stays visible — the user
@@ -1374,7 +1562,7 @@ _INDEX_HTML = r"""<!doctype html>
         current.value = r.current;
         if (current.value) {
           status.value = 'running';
-          iframeSrc.value = freshUrl();
+          showFrame();
           savePref(PREF.sample, current.value);
           connectDebug();
           return;
@@ -1393,6 +1581,7 @@ _INDEX_HTML = r"""<!doctype html>
         busy.value = true;
         error.value = '';
         status.value = 'starting ' + name + '…';
+        iframeKey.value += 1;
         iframeSrc.value = null;
         try {
           const r = await fetch('/api/switch/' + encodeURIComponent(name), { method: 'POST' });
@@ -1405,7 +1594,7 @@ _INDEX_HTML = r"""<!doctype html>
           const j = await r.json();
           current.value = j.current;
           status.value = 'running';
-          iframeSrc.value = freshUrl();
+          showFrame();
           savePref(PREF.sample, j.current);
           // Sample's HTTP is already up at this point (gallery polled
           // for it); the debug route is registered in the same app pass
@@ -1428,6 +1617,7 @@ _INDEX_HTML = r"""<!doctype html>
           disconnectDebug();
           await fetch('/api/stop', { method: 'POST' });
           current.value = null;
+          iframeKey.value += 1;
           iframeSrc.value = null;
           status.value = 'idle';
           // Explicit stop = forget the last pick; don't auto-relaunch
@@ -1439,7 +1629,7 @@ _INDEX_HTML = r"""<!doctype html>
       }
 
       function reload() {
-        if (current.value) iframeSrc.value = freshUrl();
+        if (current.value) showFrame();
       }
 
       function popout() {
@@ -1462,23 +1652,30 @@ _INDEX_HTML = r"""<!doctype html>
         height: `${height - offset}px`,
       });
 
-      onMounted(refresh);
+      onMounted(async () => {
+        try { localStorage.removeItem('gallery-debug-drawer'); } catch (_) {}
+        debugDrawer.value = await idbPrefGet(IDB_DEBUG_DRAWER, false) === true;
+        await refresh();
+      });
 
       return {
-        samples, current, busy, status, error, iframeSrc, drawer,
+        samples, current, busy, status, error, iframeSrc, iframeKey, drawer,
         dark, toggleDark,
         sampleOrigin, logoUrl: LOGO_URL,
         pick, stop, reload, popout,
         pageStyleFn,
         // Debug pane
-        debugDrawer, debugAvailable, debugReady, debugStatus, debugError,
-        debugTabs, activeDebugTab, selectDebugTab,
-        info, metrics, modules, threads, stdoutText, consoleEl, shortFile, fmtTs,
-        // Console toggles + JS REPL
-        consoleMode, jsInput, runJs, jsInputKey, bridgeReady,
-        extensions,
-        // Sessions
-        sessions, sessionsAvailable, activeSessionId, activeSessionDetail,
+        debugDrawer, toggleDebugDrawer,
+        debugAvailable, debugReady, debugStatus, debugError,
+	        debugTabs, activeDebugTab, selectDebugTab,
+	        info, metrics, modules, threads, stdoutText, consoleEl, shortFile,
+	        fmtTs, heartbeatLabel, heartbeatClass, heartbeatSeconds,
+	        // Console toggles + JS REPL
+	        consoleMode, jsInput, runJs, jsInputKey, bridgeReady,
+	        extensions,
+	        // Sessions
+	        sessions, displaySessions, sessionsAvailable, activeSessionId,
+	        activeSessionDetail, activeSessionDisplay,
         sessionsRefreshedAt,
         openSession,
       };

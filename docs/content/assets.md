@@ -222,6 +222,11 @@ current API.
   the bytes the package actually owns. To archive an older bundle,
   install that older `llming-stage` into a separate venv and run
   `llming-stage export-assets`.
+- `Stage(...)` does **not** mount the currently-installed files under an
+  older `/v<YYYY-MM>/` prefix. If the shell rewrites to an archived
+  bundle, the shared host must actually serve that archive; otherwise
+  the browser gets a clear 404 instead of silently loading incompatible
+  current bytes.
 - Pinning a bundle the shared host has **not** published (newer or
   older) is silent at build time but produces 404s in the browser.
   Inspect `manifest.json` on each archived directory to audit what's

@@ -162,6 +162,7 @@ class StageSession:
         # tab-close almost instantly.
         self.disconnect_grace_seconds = 10.0
         self._removal_tasks: dict[str, Any] = {}
+        self._ws_locks: dict[str, asyncio.Lock] = {}
 
         self._mount_routes()
         self._mount_command_router()
@@ -252,13 +253,15 @@ class StageSession:
             # Per-tab session via `?session=<id>`. Clients (loader.js)
             # generate a per-tab id stored in sessionStorage and pass it
             # here so two tabs of the same browser end up with two
-            # distinct sessions. When the hint is registered we reuse
-            # it (tab reload); otherwise we mint a fresh session under
-            # that id. The cookie fallback below kicks in only for
-            # clients that omit the query string.
+            # distinct sessions. When the hint is registered and the
+            # signed auth cookie already proves ownership, we reuse it
+            # (tab reload); otherwise we mint a fresh server-side id.
+            # The cookie fallback below kicks in only for clients that
+            # omit the query string.
             requested = request.query_params.get("session")
             if requested:
-                if self.registry.get_session(requested):
+                existing = self.auth.get_auth_session_id(request)
+                if existing == requested and self.registry.get_session(requested):
                     session_id = requested
                 else:
                     session_id = str(uuid.uuid4())
@@ -286,6 +289,10 @@ class StageSession:
 
         async def ws_endpoint(websocket: Any) -> None:
             session_id = websocket.path_params["session_id"]
+            lock = self._ws_locks.setdefault(session_id, asyncio.Lock())
+            if lock.locked():
+                await websocket.close(code=4409, reason="Session already has a WebSocket")
+                return
 
             async def on_connect(entry: Any, ws: Any) -> None:
                 # A pending disconnect-removal for this session means the
@@ -309,21 +316,20 @@ class StageSession:
                 # reconnect inside the grace window cancels it.
                 self._schedule_removal(sid)
 
-            await run_websocket_session(
-                websocket,
-                session_id,
-                self.registry,
-                on_connect=on_connect,
-                on_message=on_message,
-                on_disconnect=on_disconnect,
-                # Don't kick the previous WS off when a new one comes in
-                # for the same session id (e.g. two tabs that ended up
-                # with cloned sessionStorage). llming-com's default
-                # supersede behavior + LlmingWebSocket's auto-reconnect
-                # creates a churn loop that drops everything. We rely on
-                # our own 10s disconnect grace for cleanup instead.
-                supersede_existing=False,
-            )
+            async with lock:
+                entry = self.registry.get_session(session_id)
+                if entry is not None and getattr(entry, "websocket", None) is not None:
+                    await websocket.close(code=4409, reason="Session already has a WebSocket")
+                    return
+                await run_websocket_session(
+                    websocket,
+                    session_id,
+                    self.registry,
+                    on_connect=on_connect,
+                    on_message=on_message,
+                    on_disconnect=on_disconnect,
+                    supersede_existing=False,
+                )
 
         self.stage._insert_before_shell(Route("/api/session", create_session))
         self.stage._insert_before_shell(WebSocketRoute("/ws/{session_id}", ws_endpoint))
@@ -333,13 +339,39 @@ class StageSession:
             return
         from llming_com import build_command_router
 
+        async def command_auth(request: Request) -> Any:
+            auth_session_id = self.auth.get_auth_session_id(request)
+            if not auth_session_id:
+                raise HTTPException(status_code=401, detail="missing or invalid session cookie")
+            path_session_id = request.path_params.get("session_id")
+            if (
+                path_session_id
+                and path_session_id != "current"
+                and path_session_id != auth_session_id
+            ):
+                raise HTTPException(status_code=401, detail="missing or invalid session cookie")
+            session = self.registry.get_session(auth_session_id)
+            if session is None:
+                raise HTTPException(status_code=401, detail="session not found")
+            return session
+
         self.stage.app.include_router(
-            build_command_router(self.registry, prefix=self.command_prefix)
+            build_command_router(
+                self.registry,
+                prefix=self.command_prefix,
+                auth_dependency=command_auth,
+            )
         )
+        if not is_debug_enabled():
+            return
+
         prefix = self.command_prefix.rstrip("/")
 
         async def debug_state(request: Request) -> JSONResponse:
             session_id = request.path_params["session_id"]
+            auth_session_id = self.auth.get_auth_session_id(request)
+            if auth_session_id != session_id:
+                raise HTTPException(status_code=401, detail="missing or invalid session cookie")
             session = self.registry.get_session(session_id)
             if session is None:
                 raise HTTPException(status_code=404, detail="session not found")
@@ -352,6 +384,9 @@ class StageSession:
 
         async def debug_ws_dispatch(request: Request) -> JSONResponse:
             session_id = request.path_params["session_id"]
+            auth_session_id = self.auth.get_auth_session_id(request)
+            if auth_session_id != session_id:
+                raise HTTPException(status_code=401, detail="missing or invalid session cookie")
             session = self.registry.get_session(session_id)
             if session is None:
                 raise HTTPException(status_code=404, detail="session not found")
@@ -664,21 +699,16 @@ class Stage:
             uvicorn.run(self.app, host=host, port=selected_port)
 
     def _ensure_assets(self) -> None:
+        if self._lib_version_segment:
+            # A pinned older bundle must be served by an archived shared
+            # asset tree. Mounting the currently-installed bytes under an
+            # old /v<LIB_VERSION>/ path would silently defeat the pin.
+            return
         state = getattr(self.app, "state", None)
-        # Key includes the version segment so two Stage instances with
-        # different lib_version pins can coexist on the same app, each
-        # mounting its own asset tree.
-        flag = (
-            f"llming_stage_assets_mounted_{self.asset_prefix}"
-            f"_v{self._lib_version_segment}"
-        )
+        flag = f"llming_stage_assets_mounted_{self.asset_prefix}"
         if state is not None and getattr(state, flag, False):
             return
-        mount_assets(
-            self.app,
-            asset_prefix=self.asset_prefix,
-            lib_version_segment=self._lib_version_segment,
-        )
+        mount_assets(self.app, asset_prefix=self.asset_prefix)
         if state is not None:
             setattr(state, flag, True)
 
@@ -726,6 +756,9 @@ class Stage:
                 lib_version_segment=self._lib_version_segment,
                 lib_version=self._effective_lib_version,
                 debug_bridge=is_debug_enabled(),
+                debug_parent_origin=os.environ.get(
+                    "LLMING_STAGE_DEBUG_PARENT_ORIGIN", ""
+                ).strip(),
             )
         )
 

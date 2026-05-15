@@ -453,19 +453,84 @@ def test_stage_build_refuses_pinned_older_bundle(tmp_path: Path) -> None:
         stage.build(tmp_path / "dist")
 
 
-def test_stage_versioned_mount_registers_versioned_routes() -> None:
+def test_stage_pinned_older_bundle_does_not_mount_current_bytes_under_old_path() -> None:
     stage = Stage(Starlette(), dev=False, lib_version="2024-01")
     paths = [getattr(r, "path", "") for r in stage.app.router.routes]
-    assert any(p == "/_stage/v2024-01/vendor/{path:path}" for p in paths)
-    assert any(p == "/_stage/v2024-01/loader.js" for p in paths)
-    assert any(p == "/_stage/v2024-01/llming-com/{path:path}" for p in paths)
+    assert "/_stage/v2024-01/vendor/{path:path}" not in paths
+    assert "/_stage/v2024-01/loader.js" not in paths
+    assert "/_stage/v2024-01/llming-com/{path:path}" not in paths
 
 
-def test_two_stages_with_different_pins_coexist() -> None:
-    """Asset-mount flag must include the version segment."""
+def test_pinned_and_current_stages_can_share_one_app() -> None:
     app = Starlette()
     Stage(app, dev=False, lib_version="2024-01")
-    Stage(app, dev=False, lib_version="2025-06")
+    Stage(app, dev=False)
     paths = [getattr(r, "path", "") for r in app.router.routes]
-    assert any(p == "/_stage/v2024-01/vendor/{path:path}" for p in paths)
-    assert any(p == "/_stage/v2025-06/vendor/{path:path}" for p in paths)
+    assert "/_stage/v2024-01/vendor/{path:path}" not in paths
+    assert "/_stage/vendor/{path:path}" in paths
+
+
+def test_stage_session_debug_routes_not_mounted_without_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi import FastAPI
+
+    monkeypatch.delenv("LLMING_STAGE_DEBUG", raising=False)
+    app = FastAPI()
+    Stage(app, dev=False).session()
+
+    paths = [getattr(r, "path", "") for r in app.router.routes]
+    assert "/cmd/sessions/{session_id}/debug.state" not in paths
+    assert "/cmd/sessions/{session_id}/debug.ws_dispatch" not in paths
+
+
+def test_stage_session_debug_routes_require_matching_cookie(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi import FastAPI
+
+    monkeypatch.setenv("LLMING_STAGE_DEBUG", "1")
+    app = FastAPI()
+    Stage(app, dev=False).session()
+
+    owner = TestClient(app)
+    session_id = owner.get("/api/session").json()["sessionId"]
+
+    assert owner.get(f"/cmd/sessions/{session_id}/debug.state").status_code == 200
+    assert (
+        TestClient(app).get(f"/cmd/sessions/{session_id}/debug.state").status_code
+        == 401
+    )
+
+
+def test_stage_session_hint_cannot_mint_cookie_for_existing_session() -> None:
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    Stage(app, dev=False).session()
+
+    owner = TestClient(app)
+    session_id = owner.get("/api/session").json()["sessionId"]
+
+    attacker = TestClient(app)
+    stolen = attacker.get(f"/api/session?session={session_id}").json()["sessionId"]
+    assert stolen != session_id
+
+    reloaded = owner.get(f"/api/session?session={session_id}").json()["sessionId"]
+    assert reloaded == session_id
+
+
+def test_stage_session_rejects_second_websocket_for_same_session() -> None:
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    stage_session = Stage(app, dev=False).session()
+
+    with TestClient(app) as client:
+        session_id = client.get("/api/session").json()["sessionId"]
+        with client.websocket_connect(f"/ws/{session_id}") as first:
+            assert first.receive_json()["type"] == "welcome"
+            with pytest.raises(Exception):
+                with client.websocket_connect(f"/ws/{session_id}") as second:
+                    second.receive_json()
+            assert stage_session.registry.get_session(session_id) is not None

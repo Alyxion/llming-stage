@@ -111,7 +111,12 @@ def sample_server(request: pytest.FixtureRequest) -> Iterator[str]:
     ), f"{sample_dir} is not a runnable sample"
 
     port = _pick_free_port()
-    env = {**os.environ, "PORT": str(port), "STAGE_RELOAD": "0"}
+    env = {
+        **os.environ,
+        "PORT": str(port),
+        "STAGE_RELOAD": "0",
+        "LLMING_STAGE_DEBUG": "1",
+    }
     command = (
         [sys.executable, str(main_py)]
         if main_py.is_file()

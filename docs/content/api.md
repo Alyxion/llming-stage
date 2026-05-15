@@ -274,6 +274,9 @@ if is_debug_enabled():
     mount_debug(app)
 ```
 
+Calling `mount_debug()` while `LLMING_STAGE_DEBUG` is unset is a no-op;
+debug routes are never mounted by accident.
+
 See [Debug API](debug.md) for the full env-var, security, and protocol
 description.
 
@@ -354,6 +357,8 @@ class ShellConfig:
     dev_reload_prefix: str = "/_stage/dev"
     lib_version_segment: str = ""
     lib_version: str = ""
+    debug_bridge: bool = False
+    debug_parent_origin: str = ""
 ```
 
 | Field | Meaning |
@@ -369,6 +374,8 @@ class ShellConfig:
 | `dev_reload_prefix` | URL prefix for the development reload client. Must match `DevReloadConfig.url_prefix`. |
 | `lib_version_segment` | Pre-resolved version segment. When non-empty (e.g. `"2026-05"`), every asset URL is rewritten as `{asset_prefix}/v{segment}/...`. Set automatically by `Stage` when the app pinned an older bundle; rarely set by hand. |
 | `lib_version` | The bundle string the page is actually loading. Emitted as `window.__stageLibVersion` for debug/self-reporting. `Stage` sets this to `LIB_VERSION` when there's no rewrite, or to the pinned string when there is. |
+| `debug_bridge` | Inject the iframe debug bridge. `Stage` sets this only in explicit debug mode. |
+| `debug_parent_origin` | Exact parent origin allow-list for the iframe debug bridge. Empty disables the bridge. `Stage` reads `LLMING_STAGE_DEBUG_PARENT_ORIGIN`. |
 
 ## `render_shell(config: ShellConfig) -> str`
 
