@@ -64,6 +64,12 @@ calling `Stage(app)` once and writing `.vue` view files.
 8. **Don't bypass the pre-commit content guard.** `--no-verify` is not
    allowed. The guard blocks customer/domain-specific terms.
 
+9. **README diagrams must work on light and dark PyPI.** Use transparent
+   backgrounds, keep the bright llming-stage palette, and avoid black or
+   near-black text/strokes. Commit the editable source next to the rendered
+   image; for Excalidraw diagrams, keep the `.excalidraw` file alongside the
+   PNG used by PyPI.
+
 ## Where to look
 
 | Topic | File |
