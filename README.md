@@ -11,7 +11,7 @@
 
 `llming-stage` is the SPA foundation for AI-assisted frontend work. You write a real Vue + Quasar app, not a Python shim. Reactive traffic and sessions flow through [`llming-com`](https://github.com/Alyxion/llming-com), and that's the same channel an AI assistant uses to inspect state, invoke commands, and push events into the running page.
 
-<p align="center"><img src="https://raw.githubusercontent.com/Alyxion/llming-stage/main/media/runtime-architecture.png" alt="llming-stage runtime architecture" width="760"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/Alyxion/llming-stage/main/media/readme-showcase.webp" alt="llming-stage sample showcase" width="760"></p>
 
 `llming-com` ships the sessions, auth, command dispatcher, and the debug surface — without it, the AI side of the picture goes away. When you eventually deploy and the app no longer needs server reactivity, the same shell + view modules can ship as a static bundle to any CDN.
 
@@ -105,6 +105,8 @@ Full docs in [`docs/content/`](docs/content):
 - [Quick start](docs/content/installation.md) · [Stage apps](docs/content/stage.md) · [App shell](docs/content/shell.md) · [Communication model](docs/content/communication-model.md)
 - [llming-com integration](docs/content/llming-com.md) · [Assets & lazy loading](docs/content/lazy-loading.md)
 - [Security](docs/content/security.md) · [API reference](docs/content/api.md)
+
+<p align="center"><img src="https://raw.githubusercontent.com/Alyxion/llming-stage/main/media/runtime-architecture.png" alt="llming-stage runtime architecture" width="760"></p>
 
 ---
 

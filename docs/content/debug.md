@@ -118,7 +118,7 @@ $ echo '{"q": "info"}' | websocat 'ws://127.0.0.1:8765/_stage/debug/ws?token=s3c
 {
   "ok": true,
   "data": {
-    "llming_stage_version": "0.1.3",
+    "llming_stage_version": "0.1.4",
     "lib_version": "2026-05",
     "python_version": "3.14.3",
     "pid": 88712,

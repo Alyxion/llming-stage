@@ -70,6 +70,12 @@ calling `Stage(app)` once and writing `.vue` view files.
    image; for Excalidraw diagrams, keep the `.excalidraw` file alongside the
    PNG used by PyPI.
 
+10. **README showcase media must be the polished demos only.** The front-page
+    animation should be generated with `scripts/capture_readme_showcase.py`
+    from the fancy samples (Three.js, analytics dashboard, Plotly, extension
+    workbench, capstone metrics, markdown render). Do not include minimal
+    smoke-test demos such as hello world, static shell, or basic components.
+
 ## Where to look
 
 | Topic | File |
@@ -101,6 +107,9 @@ poetry run python samples/gallery.py
 
 # Build docs
 poetry run mkdocs build -f docs/mkdocs.yml --strict
+
+# Regenerate the README hero animation (requires img2webp + Playwright)
+poetry run python scripts/capture_readme_showcase.py
 
 # Dump assets for a shared host
 poetry run llming-stage export-assets --out /var/www/_stage
