@@ -230,6 +230,12 @@ For conventional llming-com apps, `Stage.session(...)` mounts
 `this.$stage.send(...)`; Python calls mounted Vue methods with
 `session.call("target.method", ...)`.
 
+If `LLMING_AUTH_SECRET` is not set, llming-stage uses a random
+per-process secret instead of a known fallback. That is fine for local
+single-process development, but production and multi-worker deployments
+must set one stable high-entropy `LLMING_AUTH_SECRET` so signed session
+cookies survive process restarts and load balancing.
+
 ```python title="main.py"
 from fastapi import FastAPI
 from llming_stage import Stage

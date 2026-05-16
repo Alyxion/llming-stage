@@ -105,6 +105,11 @@ refuses to run without its server counterpart.
 For conventional apps, `Stage.session(...)` mounts `/api/session` and
 `/ws/{session_id}`:
 
+Set `LLMING_AUTH_SECRET` in production and in any multi-worker
+deployment. Without it, llming-stage uses an unguessable per-process
+development secret, which avoids known fallback keys but makes cookies
+invalid across restarts or different workers.
+
 ```python
 from fastapi import FastAPI
 from llming_stage import Stage

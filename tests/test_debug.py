@@ -57,10 +57,8 @@ def test_stage_mounts_debug_when_env_set(monkeypatch: pytest.MonkeyPatch) -> Non
 def debug_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """A debug-WS client that authenticates via token.
 
-    Starlette's TestClient reports ``host="testclient"`` which is not
-    a loopback address, so the default no-token / loopback-only path
-    would refuse it. We set a token to exercise the WS message loop;
-    the loopback path is covered by ``test_check_auth_*`` below.
+    The debug endpoint always requires ``LLMING_STAGE_DEBUG_TOKEN``;
+    this fixture sets one to exercise the WS message loop.
     """
     monkeypatch.setenv("LLMING_STAGE_DEBUG", "1")
     monkeypatch.setenv("LLMING_STAGE_DEBUG_TOKEN", "test-token")
@@ -94,11 +92,11 @@ def test_check_auth_token_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
     assert debug_mod._check_auth(ws) is False
 
 
-def test_check_auth_no_token_loopback_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_check_auth_no_token_refused_even_on_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("LLMING_STAGE_DEBUG_TOKEN", raising=False)
     for host in ("127.0.0.1", "::1", "localhost"):
         ws = _ws_with_host(host)
-        assert debug_mod._check_auth(ws) is True, host
+        assert debug_mod._check_auth(ws) is False, host
 
 
 def test_check_auth_no_token_non_loopback_refused(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -249,6 +247,18 @@ def test_token_accepts_match(monkeypatch: pytest.MonkeyPatch) -> None:
         ws.send_json({"q": "info"})
         msg = ws.receive_json()
     assert msg["ok"] is True
+
+
+def test_debug_ws_requires_token_even_on_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLMING_STAGE_DEBUG", "1")
+    monkeypatch.delenv("LLMING_STAGE_DEBUG_TOKEN", raising=False)
+    app = Starlette()
+    mount_debug(app)
+    client = TestClient(app)
+    with pytest.raises(Exception):
+        with client.websocket_connect("/_stage/debug/ws") as ws:
+            ws.send_json({"q": "info"})
+            ws.receive_json()
 
 
 def test_mount_debug_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:

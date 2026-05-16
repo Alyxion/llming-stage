@@ -56,6 +56,9 @@ admin = sessions.add_app_router("admin")
 
 `sessions.require_session` is a FastAPI dependency for cookie-authenticated
 HTTP endpoints that need the current session, for example uploads.
+Set `LLMING_AUTH_SECRET` to one stable high-entropy value in production
+or multi-worker deployments; otherwise a random per-process development
+secret is used and cookies will not survive restarts or worker changes.
 
 Examples:
 
@@ -263,7 +266,9 @@ installs the silent stdout/stderr ring-buffer capture (1000 lines each;
 the original streams are unchanged).
 
 `Stage(...)` calls this automatically when `is_debug_enabled()` returns
-`True` (env var `LLMING_STAGE_DEBUG` is set). Callers using
+`True` (env var `LLMING_STAGE_DEBUG` is set). The endpoint still rejects
+every connection unless `LLMING_STAGE_DEBUG_TOKEN` is set and the client
+supplies the matching `?token=...` query parameter. Callers using
 `mount_assets()` directly can opt in themselves:
 
 ```python

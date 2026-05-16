@@ -44,7 +44,8 @@ unset, calling it mounts nothing.
 ## Securing the endpoint
 
 The debug endpoint binds to whichever interface the host app binds to.
-**For anything other than `127.0.0.1` you must require a token:**
+It always requires a bearer token; loopback alone is not trusted because
+web pages can attempt WebSocket connections to localhost services.
 
 ```bash
 LLMING_STAGE_DEBUG=1 \
@@ -111,13 +112,13 @@ discover the catalog.
 Quick interactive verification with [`websocat`](https://github.com/vi/websocat):
 
 ```bash
-$ LLMING_STAGE_DEBUG=1 poetry run python main.py &
+$ LLMING_STAGE_DEBUG=1 LLMING_STAGE_DEBUG_TOKEN=s3cret poetry run python main.py &
 
-$ echo '{"q": "info"}' | websocat ws://127.0.0.1:8765/_stage/debug/ws | jq .
+$ echo '{"q": "info"}' | websocat 'ws://127.0.0.1:8765/_stage/debug/ws?token=s3cret' | jq .
 {
   "ok": true,
   "data": {
-    "llming_stage_version": "0.1.1",
+    "llming_stage_version": "0.1.2",
     "lib_version": "2026-05",
     "python_version": "3.14.3",
     "pid": 88712,

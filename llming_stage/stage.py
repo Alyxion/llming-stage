@@ -7,6 +7,7 @@ import inspect
 import json
 import os
 import re
+import secrets
 import shutil
 import uuid
 from collections.abc import Callable
@@ -29,8 +30,18 @@ from .shell import (
 )
 
 _LIB_VERSION_RE = re.compile(r"\d{4}-(0[1-9]|1[0-2])(-\d+)?")
+_PROCESS_AUTH_SECRET = "llming_stage_" + secrets.token_urlsafe(32)
 
 _VIEW_EXTENSIONS = {".vue", ".js", ".html", ".htm"}
+
+
+def _make_auth_manager(app_name: str) -> Any:
+    """Create an AuthManager without ever using a known fallback secret."""
+
+    from llming_com import AuthManager
+
+    secret = os.environ.get("LLMING_AUTH_SECRET") or _PROCESS_AUTH_SECRET
+    return AuthManager(secret=secret, app_name=app_name)
 
 
 @dataclass
@@ -196,6 +207,11 @@ class StageSession:
         if task is not None and not task.done():
             task.cancel()
 
+    def _drop_ws_lock(self, session_id: str) -> None:
+        lock = self._ws_locks.get(session_id)
+        if lock is not None and not lock.locked():
+            self._ws_locks.pop(session_id, None)
+
     def _schedule_removal(self, session_id: str) -> None:
         """Drop *session_id* from the registry after the grace period.
 
@@ -224,12 +240,14 @@ class StageSession:
                 return
             self._removal_tasks.pop(session_id, None)
             self.registry.remove(session_id)
+            self._drop_ws_lock(session_id)
 
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             # No loop — synchronous test path. Remove eagerly.
             self.registry.remove(session_id)
+            self._drop_ws_lock(session_id)
             return
         task = loop.create_task(_drop())
         task_ref["self"] = task
@@ -284,11 +302,16 @@ class StageSession:
                 token,
                 httponly=True,
                 samesite="lax",
+                secure=request.url.scheme == "https",
             )
             return resp
 
         async def ws_endpoint(websocket: Any) -> None:
             session_id = websocket.path_params["session_id"]
+            auth_session_id = self.auth.get_auth_session_id(websocket)
+            if auth_session_id != session_id:
+                await websocket.close(code=4401, reason="Missing or invalid session cookie")
+                return
             lock = self._ws_locks.setdefault(session_id, asyncio.Lock())
             if lock.locked():
                 await websocket.close(code=4409, reason="Session already has a WebSocket")
@@ -600,19 +623,16 @@ class Stage:
         routes needed by ``this.$stage.connect()``.
         """
         from llming_com import (
-            AuthManager,
             BaseController,
             BaseLlmingApp,
             BaseSessionEntry,
             BaseSessionRegistry,
         )
 
-        os.environ.setdefault("LLMING_AUTH_SECRET", "dev-secret-please-change")
-
         session_type = session_cls or BaseSessionEntry
         session_registry = registry or BaseSessionRegistry.get()
         llming_app = app_context or BaseLlmingApp(session_registry)
-        auth = AuthManager(app_name=app_name)
+        auth = _make_auth_manager(app_name)
         stage_session = StageSession(
             self,
             app_name=app_name,

@@ -16,7 +16,9 @@ custom wiring, but public samples should prefer ``Stage.session(...)``.
 
 from __future__ import annotations
 
+import asyncio
 import os
+import secrets
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -46,6 +48,8 @@ from llming_com import (
 from llming_com.ws_router import AppRouter, SessionRouter
 
 from llming_stage import ShellConfig, Stage, is_debug_enabled, mount_assets, mount_shell
+
+_PROCESS_AUTH_SECRET = "llming_stage_sample_" + secrets.token_urlsafe(32)
 
 
 @dataclass
@@ -154,12 +158,14 @@ def bootstrap(
     for every message this session receives over its WebSocket. Pass
     ``None`` for samples that don't need reactive server-side logic.
     """
-    os.environ.setdefault("LLMING_AUTH_SECRET", "dev-secret-please-change")
-
     app = FastAPI()
     registry = SampleRegistry.get()
     llming_app = BaseLlmingApp(registry)
-    auth = AuthManager(app_name=app_name)
+    auth = AuthManager(
+        secret=os.environ.get("LLMING_AUTH_SECRET") or _PROCESS_AUTH_SECRET,
+        app_name=app_name,
+    )
+    ws_locks: dict[str, asyncio.Lock] = {}
 
     @app.get("/api/session")
     async def create_session(request: Request) -> JSONResponse:
@@ -176,12 +182,25 @@ def bootstrap(
         ws_url = f"{ws_scheme}://{request.url.netloc}/ws/{session_id}"
         resp = JSONResponse({"sessionId": session_id, "wsUrl": ws_url})
         resp.set_cookie(
-            f"{app_name}_auth", token, httponly=True, samesite="lax"
+            f"{app_name}_auth",
+            token,
+            httponly=True,
+            samesite="lax",
+            secure=request.url.scheme == "https",
         )
         return resp
 
     @app.websocket("/ws/{session_id}")
     async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
+        auth_session_id = auth.get_auth_session_id(websocket)
+        if auth_session_id != session_id:
+            await websocket.close(code=4401, reason="Missing or invalid session cookie")
+            return
+        lock = ws_locks.setdefault(session_id, asyncio.Lock())
+        if lock.locked():
+            await websocket.close(code=4409, reason="Session already has a WebSocket")
+            return
+
         async def on_connect(entry: SampleSession, ws: WebSocket) -> None:
             controller = SampleController(session_id)
             controller.set_websocket(ws)
@@ -204,14 +223,20 @@ def bootstrap(
             if on_disconnect_extra is not None:
                 await on_disconnect_extra(sid, entry)
 
-        await run_websocket_session(
-            websocket,
-            session_id,
-            registry,
-            on_connect=on_connect,
-            on_message=on_message,
-            on_disconnect=on_disconnect,
-        )
+        async with lock:
+            entry = registry.get_session(session_id)
+            if entry is not None and getattr(entry, "websocket", None) is not None:
+                await websocket.close(code=4409, reason="Session already has a WebSocket")
+                return
+            await run_websocket_session(
+                websocket,
+                session_id,
+                registry,
+                on_connect=on_connect,
+                on_message=on_message,
+                on_disconnect=on_disconnect,
+                supersede_existing=False,
+            )
 
     # Mount the command router only in explicit debug mode. The shared
     # commands below expose state and raw WS dispatch, so they must never

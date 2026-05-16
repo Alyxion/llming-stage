@@ -7,8 +7,8 @@ about the running process (CPU/memory, threads, loaded modules, recent
 stdout/stderr, …).
 
 **Disabled by default.** **Never enabled implicitly.** When enabled,
-the endpoint binds to whichever interface the host app binds to — pair
-with a token (``LLMING_STAGE_DEBUG_TOKEN``) when binding non-loopback.
+the endpoint binds to whichever interface the host app binds to and
+always requires a token (``LLMING_STAGE_DEBUG_TOKEN``).
 
 **Produces no log output of its own.** stdout/stderr are passively
 captured into a bounded ring buffer; the original streams still receive
@@ -458,32 +458,20 @@ _CTX_HANDLERS: dict[str, Any] = {
 # ---------------------------------------------------------------------------
 
 
-_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
-
-
-def _is_loopback(websocket: WebSocket) -> bool:
-    client = getattr(websocket, "client", None)
-    host = getattr(client, "host", None) if client is not None else None
-    return host in _LOOPBACK_HOSTS
-
-
 def _check_auth(websocket: WebSocket) -> bool:
     """Allow the connection?
 
-    Two modes, ranked safest-first:
-
-    1. ``LLMING_STAGE_DEBUG_TOKEN`` is set → require a matching ``token``
-       query param via ``hmac.compare_digest``. Network-safe.
-    2. No token configured → only accept loopback clients (127.0.0.1,
-       ::1, localhost). Prevents accidental exposure when an operator
-       turns the env var on while the app happens to bind 0.0.0.0.
+    ``LLMING_STAGE_DEBUG_TOKEN`` is mandatory. Loopback-only checks are
+    not enough because any web page can attempt a WebSocket connection
+    to a user's localhost service; a bearer token keeps the endpoint
+    unreachable unless the runner/operator knows it.
     """
     expected = os.environ.get(_ENV_TOKEN, "").strip()
-    if expected:
-        import hmac
-        got = websocket.query_params.get("token", "")
-        return hmac.compare_digest(got, expected)
-    return _is_loopback(websocket)
+    if not expected:
+        return False
+    import hmac
+    got = websocket.query_params.get("token", "")
+    return hmac.compare_digest(got, expected)
 
 
 async def _debug_ws(websocket: WebSocket) -> None:

@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import os
+import secrets
 import signal
 import socket
 import subprocess
@@ -58,6 +60,7 @@ def _pick_free_port() -> int:
 
 GALLERY_PORT = int(os.environ.get("GALLERY_PORT", "8000"))
 SAMPLE_PORT = int(os.environ.get("SAMPLE_PORT", "8765"))
+DEBUG_TOKEN = os.environ.get("LLMING_STAGE_DEBUG_TOKEN") or secrets.token_urlsafe(32)
 
 
 def discover() -> list[dict[str, str]]:
@@ -109,7 +112,20 @@ def _port_open(port: int) -> bool:
         s.close()
 
 
-def _listener_pids(port: int) -> list[int]:
+def _process_command(pid: int) -> str:
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, OSError):
+        return ""
+    return result.stdout.strip()
+
+
+def _listener_processes(port: int) -> list[tuple[int, str]]:
     try:
         result = subprocess.run(
             ["lsof", f"-tiTCP:{port}", "-sTCP:LISTEN"],
@@ -119,15 +135,27 @@ def _listener_pids(port: int) -> list[int]:
         )
     except (FileNotFoundError, OSError):
         return []
-    pids: list[int] = []
+    processes: list[tuple[int, str]] = []
     for line in result.stdout.splitlines():
         try:
             pid = int(line.strip())
         except ValueError:
             continue
         if pid != os.getpid():
-            pids.append(pid)
-    return pids
+            processes.append((pid, _process_command(pid)))
+    return processes
+
+
+def _is_repo_sample_process(command: str) -> bool:
+    if not command:
+        return False
+    repo = str(REPO)
+    samples = str(HERE)
+    return repo in command and (
+        samples in command
+        or "llming_stage.cli" in command
+        or "samples/gallery.py" in command
+    )
 
 
 async def _wait_port_closed(port: int, timeout: float) -> bool:
@@ -140,17 +168,19 @@ async def _wait_port_closed(port: int, timeout: float) -> bool:
 
 
 async def _reclaim_sample_port() -> bool:
-    pids = _listener_pids(SAMPLE_PORT)
-    if not pids:
+    processes = _listener_processes(SAMPLE_PORT)
+    if not processes:
         return False
-    for pid in pids:
+    if not all(_is_repo_sample_process(command) for _, command in processes):
+        return False
+    for pid, _ in processes:
         try:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
     if await _wait_port_closed(SAMPLE_PORT, 5):
         return True
-    for pid in pids:
+    for pid, _ in processes:
         try:
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
@@ -188,6 +218,7 @@ class SampleRunner:
                 **os.environ,
                 "PORT": str(SAMPLE_PORT),
                 "LLMING_STAGE_DEBUG": "1",
+                "LLMING_STAGE_DEBUG_TOKEN": DEBUG_TOKEN,
                 "LLMING_STAGE_DEBUG_PARENT_ORIGIN": (
                     f"http://127.0.0.1:{GALLERY_PORT},http://localhost:{GALLERY_PORT}"
                 ),
@@ -313,6 +344,7 @@ async def index() -> HTMLResponse:
         _INDEX_HTML
         .replace("__SAMPLE_PORT__", str(SAMPLE_PORT))
         .replace("__LOGO_DATA_URL__", _LOGO_DATA_URL)
+        .replace("__DEBUG_TOKEN_JSON__", json.dumps(DEBUG_TOKEN))
     )
     return HTMLResponse(body)
 
@@ -1034,6 +1066,7 @@ _INDEX_HTML = r"""<!doctype html>
   const SAMPLE_PORT = '__SAMPLE_PORT__';
   const sampleOrigin = location.protocol + '//' + location.hostname + ':' + SAMPLE_PORT;
   const LOGO_URL = '__LOGO_DATA_URL__';
+  const DEBUG_TOKEN = __DEBUG_TOKEN_JSON__;
 
   const { createApp, ref, computed, onMounted, watch, nextTick } = Vue;
 
@@ -1234,6 +1267,7 @@ _INDEX_HTML = r"""<!doctype html>
       }
 
       window.addEventListener('message', (ev) => {
+        if (ev.origin !== sampleOrigin) return;
         const m = ev.data;
         if (!m || m.source !== 'llming-stage-bridge') return;
         if (m.type === 'ready') {
@@ -1512,7 +1546,8 @@ _INDEX_HTML = r"""<!doctype html>
         debugStatus.value = 'connecting';
         debugError.value = '';
         const wsScheme = location.protocol === 'https:' ? 'wss' : 'ws';
-        const url = `${wsScheme}://${location.hostname}:${SAMPLE_PORT}/_stage/debug/ws`;
+        const token = encodeURIComponent(DEBUG_TOKEN);
+        const url = `${wsScheme}://${location.hostname}:${SAMPLE_PORT}/_stage/debug/ws?token=${token}`;
         const ws = new WebSocket(url);
         debugWs = ws;
 	        ws.onopen = () => {

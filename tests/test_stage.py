@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -518,6 +519,105 @@ def test_stage_session_hint_cannot_mint_cookie_for_existing_session() -> None:
 
     reloaded = owner.get(f"/api/session?session={session_id}").json()["sessionId"]
     assert reloaded == session_id
+
+
+def test_stage_session_does_not_install_known_auth_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi import FastAPI
+
+    monkeypatch.delenv("LLMING_AUTH_SECRET", raising=False)
+    app = FastAPI()
+    Stage(app, dev=False).session()
+
+    assert os.environ.get("LLMING_AUTH_SECRET") is None
+
+
+def test_stage_session_websocket_requires_matching_cookie() -> None:
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    Stage(app, dev=False).session()
+
+    owner = TestClient(app)
+    session_id = owner.get("/api/session").json()["sessionId"]
+
+    attacker = TestClient(app)
+    with pytest.raises(Exception):
+        with attacker.websocket_connect(f"/ws/{session_id}") as ws:
+            ws.receive_json()
+
+
+def test_stage_session_auth_cookie_secure_on_https() -> None:
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    Stage(app, dev=False).session()
+
+    with TestClient(app, base_url="https://example.test") as client:
+        response = client.get("/api/session")
+
+    cookie = response.headers["set-cookie"]
+    assert "Secure" in cookie
+    assert "HttpOnly" in cookie
+    assert "SameSite=lax" in cookie
+
+
+def test_stage_session_auth_cookie_not_secure_on_http() -> None:
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    Stage(app, dev=False).session()
+
+    with TestClient(app, base_url="http://example.test") as client:
+        response = client.get("/api/session")
+
+    assert "Secure" not in response.headers["set-cookie"]
+
+
+def test_legacy_sample_bootstrap_websocket_requires_matching_cookie(tmp_path: Path) -> None:
+    from samples._common import bootstrap
+
+    (tmp_path / "home.vue").write_text(
+        "<template><main>legacy</main></template>",
+        encoding="utf-8",
+    )
+    app, _, _ = bootstrap(
+        app_name="legacy_auth_test",
+        title="legacy",
+        routes=[("/", "home")],
+        view_sources={"home": "home.vue"},
+        static_dir=tmp_path,
+    )
+
+    owner = TestClient(app)
+    session_id = owner.get("/api/session").json()["sessionId"]
+
+    attacker = TestClient(app)
+    with pytest.raises(Exception):
+        with attacker.websocket_connect(f"/ws/{session_id}") as ws:
+            ws.receive_json()
+
+
+def test_legacy_sample_bootstrap_auth_cookie_secure_on_https(tmp_path: Path) -> None:
+    from samples._common import bootstrap
+
+    (tmp_path / "home.vue").write_text(
+        "<template><main>legacy</main></template>",
+        encoding="utf-8",
+    )
+    app, _, _ = bootstrap(
+        app_name="legacy_secure_cookie_test",
+        title="legacy",
+        routes=[("/", "home")],
+        view_sources={"home": "home.vue"},
+        static_dir=tmp_path,
+    )
+
+    with TestClient(app, base_url="https://example.test") as client:
+        response = client.get("/api/session")
+
+    assert "Secure" in response.headers["set-cookie"]
 
 
 def test_stage_session_rejects_second_websocket_for_same_session() -> None:
