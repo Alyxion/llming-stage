@@ -11,19 +11,7 @@
 
 `llming-stage` is the SPA foundation for AI-assisted frontend work. You write a real Vue + Quasar app, not a Python shim. Reactive traffic and sessions flow through [`llming-com`](https://github.com/Alyxion/llming-com), and that's the same channel an AI assistant uses to inspect state, invoke commands, and push events into the running page.
 
-```mermaid
-flowchart LR
-    User(["👤 User"]) --> Browser
-    AI(["🤖 AI assistant"]) <--> Com
-    Browser["<b>Browser</b><br/>Vue + Quasar SPA<br/>(llming-stage shell)"]
-    Com["<b>Python server</b><br/>llming-com<br/>sessions · auth · commands<br/>HTTP / MCP debug API"]
-    Browser <-->|"per-user WebSocket<br/>reactive commands · server pushes"| Com
-
-    classDef live fill:#1976d2,stroke:#1565c0,color:#fff,stroke-width:1.5px
-    classDef ai fill:#a855f7,stroke:#7c3aed,color:#fff,stroke-width:1.5px
-    class Browser,Com live
-    class AI ai
-```
+<p align="center"><img src="https://raw.githubusercontent.com/Alyxion/llming-stage/main/media/runtime-architecture.png" alt="llming-stage runtime architecture" width="760"></p>
 
 `llming-com` ships the sessions, auth, command dispatcher, and the debug surface — without it, the AI side of the picture goes away. When you eventually deploy and the app no longer needs server reactivity, the same shell + view modules can ship as a static bundle to any CDN.
 
