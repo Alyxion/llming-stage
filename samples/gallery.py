@@ -39,7 +39,7 @@ def _logo_data_url() -> str:
     Cheap (the icon is ~10 KB) and keeps the gallery a single-file HTML
     response — no extra static route needed.
     """
-    path = REPO / "media" / "logo-icon.png"
+    path = REPO / "media" / "llming-stage-icon.png"
     if not path.is_file():
         return ""
     encoded = base64.b64encode(path.read_bytes()).decode("ascii")

@@ -1,4 +1,4 @@
-<p align="center"><img src="https://raw.githubusercontent.com/Alyxion/llming-stage/main/media/logo-small.png" alt="LLMing Stage" width="400"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/Alyxion/llming-stage/main/media/llming-stage-logo-small.png" alt="LLMing Stage" width="400"></p>
 
 # llming-stage
 
