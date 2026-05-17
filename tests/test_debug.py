@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import sys
+from pathlib import Path
 
 import pytest
 from starlette.applications import Starlette
@@ -46,6 +46,20 @@ def test_stage_mounts_debug_when_env_set(monkeypatch: pytest.MonkeyPatch) -> Non
     stage = Stage(Starlette(), dev=False)
     paths = [getattr(r, "path", "") for r in stage.app.router.routes]
     assert "/_stage/debug/ws" in paths
+
+
+def test_browser_eval_bridge_is_debug_gated_in_loader() -> None:
+    loader = (Path(__file__).resolve().parents[1] / "llming_stage/static/loader.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert "if (!(window.__stageDebug && window.__stageDebug.enabled)) return;" in loader
+    assert (
+        "msg.type === 'llming.debug.eval' && window.__stageDebug && window.__stageDebug.enabled"
+        in loader
+    )
+    assert "target === '__stageDebug'" in loader
+    assert "method === 'eval'" in loader
 
 
 # ---------------------------------------------------------------------------

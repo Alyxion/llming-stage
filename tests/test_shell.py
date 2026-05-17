@@ -12,12 +12,14 @@ def test_loader_js_is_served(client: TestClient) -> None:
     assert r.status_code == 200
     assert "window.__stage" in r.text
     assert r.headers["content-type"].startswith("application/javascript")
+    assert r.headers["cache-control"] == "no-store"
 
 
 def test_router_js_is_served(client: TestClient) -> None:
     r = client.get("/_stage/router.js")
     assert r.status_code == 200
     assert "window.__stageRouter" in r.text
+    assert r.headers["cache-control"] == "no-store"
 
 
 def test_vue_is_served(client: TestClient) -> None:
@@ -135,6 +137,17 @@ def test_shell_escapes_js_route_value() -> None:
     assert "register('/\\x3c/script\\x3e'" in html
 
 
+def test_shell_never_renders_visible_debug_chrome() -> None:
+    html = render_shell(ShellConfig(dev_reload=True, debug_enabled=True))
+
+    assert 'id="stage-controls"' not in html
+    assert 'id="stage-debug-toggle"' not in html
+    assert 'data-test="stage-restart"' not in html
+    assert "window.__stageDebug" in html
+    assert 'src="/_stage/loader.js?v=' in html
+    assert 'src="/_stage/router.js?v=' in html
+
+
 def test_debug_bridge_requires_configured_parent_origin() -> None:
     without_origin = render_shell(ShellConfig(debug_bridge=True))
     assert "llming-stage-bridge" not in without_origin
@@ -204,8 +217,6 @@ def test_shell_versioned_with_custom_asset_prefix() -> None:
 
 
 def test_export_package_assets_writes_full_tree(tmp_path) -> None:
-    from pathlib import Path
-
     from llming_stage import LIB_VERSION, __version__
     from llming_stage.shell import export_package_assets
 

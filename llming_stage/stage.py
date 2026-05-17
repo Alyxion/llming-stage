@@ -50,6 +50,8 @@ class _View:
     name: str
     source: Path | Callable[[], Any]
     module_url: str
+    debug_source: Path | None = None
+    debug_module_url: str | None = None
 
 
 class VueResponse(Response):
@@ -175,6 +177,7 @@ class StageSession:
         self._removal_tasks: dict[str, Any] = {}
         self._ws_locks: dict[str, asyncio.Lock] = {}
 
+        self._mount_internal_debug_handlers()
         self._mount_routes()
         self._mount_command_router()
 
@@ -201,6 +204,43 @@ class StageSession:
         child = AppRouter(prefix=prefix)
         self.application_router.include(child)
         return child
+
+    def _mount_internal_debug_handlers(self) -> None:
+        """Handle browser debug messages on the normal session WebSocket."""
+
+        if not is_debug_enabled():
+            return
+        from . import debug as debug_mod
+
+        @self.session_router.handler("llming.debug.console")
+        async def _stage_debug_console(
+            session: Any,
+            controller: Any,
+            level: str = "log",
+            text: str = "",
+        ) -> None:
+            debug_mod.record_js_console(
+                getattr(controller, "session_id", "")
+                or getattr(session, "session_id", "")
+                or _session_id_for_entry(self.registry, session),
+                {"level": level, "text": text},
+            )
+
+        @self.session_router.handler("llming.debug.eval_result")
+        async def _stage_debug_eval_result(
+            session: Any,
+            controller: Any,
+            id: str = "",
+            ok: bool = False,
+            result: Any = None,
+            error: str = "",
+        ) -> None:
+            debug_mod.record_js_eval_result(
+                getattr(controller, "session_id", "")
+                or getattr(session, "session_id", "")
+                or _session_id_for_entry(self.registry, session),
+                {"id": id, "ok": ok, "result": result, "error": error},
+            )
 
     def _cancel_removal(self, session_id: str) -> None:
         task = self._removal_tasks.pop(session_id, None)
@@ -445,6 +485,21 @@ def _jsonable(value: Any) -> Any:
     return f"<{type(value).__name__}>"
 
 
+def _session_id_for_entry(registry: Any, entry: Any) -> str:
+    """Best-effort reverse lookup for registries whose entries lack an id field."""
+
+    for attr in ("items", "_sessions", "sessions"):
+        candidate = getattr(registry, attr, None)
+        try:
+            items = candidate() if callable(candidate) else candidate.items()
+        except Exception:
+            continue
+        for session_id, candidate_entry in items:
+            if candidate_entry is entry:
+                return str(session_id)
+    return ""
+
+
 def _create_fastapi_app(*, title: str, kwargs: dict[str, Any]) -> Any:
     try:
         from fastapi import FastAPI
@@ -584,15 +639,27 @@ class Stage:
             fallback = resolved_source
         view_name = name or _name_for_route(route, fallback)
         module_url = f"{self.asset_prefix}/app/{view_name}.js"
+        debug_source = _debug_source_for_view(resolved_source, view_name)
+        debug_module_url = (
+            f"{self.asset_prefix}/app/{view_name}.debug.js"
+            if debug_source is not None
+            else None
+        )
         view = _View(
             route=route,
             name=view_name,
             source=resolved_source,
             module_url=module_url,
+            debug_source=debug_source,
+            debug_module_url=debug_module_url,
         )
         self._views = [v for v in self._views if v.route != route and v.name != view_name]
         self._views.append(view)
         self._insert_before_shell(Route(module_url, self._make_view_handler(view)))
+        if debug_source is not None and debug_module_url is not None:
+            self._insert_before_shell(
+                Route(debug_module_url, self._make_debug_view_handler(view))
+            )
         self._ensure_shell()
 
     def discover(self, views_dir: str | Path = "views") -> "Stage":
@@ -769,13 +836,21 @@ class Stage:
                 title=self.title,
                 asset_prefix=self.asset_prefix,
                 routes=[(v.route, v.name) for v in self._views],
-                view_modules={v.name: v.module_url for v in self._views},
+                view_modules={
+                    v.name: (
+                        {"js": v.module_url, "debug": v.debug_module_url}
+                        if v.debug_module_url
+                        else v.module_url
+                    )
+                    for v in self._views
+                },
                 preload_views=[self._views[0].name] if self._views else [],
                 dev_reload=dev_reload,
                 dev_reload_prefix=f"{self.asset_prefix}/dev",
                 lib_version_segment=self._lib_version_segment,
                 lib_version=self._effective_lib_version,
                 debug_bridge=is_debug_enabled(),
+                debug_enabled=is_debug_enabled(),
                 debug_parent_origin=os.environ.get(
                     "LLMING_STAGE_DEBUG_PARENT_ORIGIN", ""
                 ).strip(),
@@ -797,6 +872,18 @@ class Stage:
                 js,
                 media_type="application/javascript; charset=utf-8",
                 headers={"Cache-Control": "no-store" if self.dev else "public, max-age=31536000"},
+            )
+
+        return handler
+
+    def _make_debug_view_handler(self, view: _View):
+        async def handler(request: Request) -> Response:
+            if not is_debug_enabled() or view.debug_source is None:
+                raise HTTPException(status_code=404, detail="debug actions not enabled")
+            return Response(
+                view.debug_source.read_text(encoding="utf-8"),
+                media_type="application/javascript; charset=utf-8",
+                headers={"Cache-Control": "no-store"},
             )
 
         return handler
@@ -832,6 +919,25 @@ def _render_view_module(name: str, source: Path | Callable[[], Any]) -> str:
     if suffix == ".js":
         return text
     raise ValueError(f"unsupported view extension: {source.suffix}")
+
+
+def _debug_source_for_view(source: Path | Callable[[], Any], view_name: str) -> Path | None:
+    if not is_debug_enabled():
+        return None
+    if isinstance(source, Path):
+        return _debug_source_for(source)
+    func_file = inspect.getsourcefile(source)
+    if not func_file:
+        return None
+    candidate = Path(func_file).resolve().parent / f"{view_name}.debug.js"
+    return candidate if candidate.is_file() else None
+
+
+def _debug_source_for(source: Path) -> Path | None:
+    if not source.is_file():
+        return None
+    candidate = source.with_name(f"{source.stem}.debug.js")
+    return candidate if candidate.is_file() else None
 
 
 def _render_generated_view(name: str, func: Callable[[], Any]) -> str:

@@ -132,6 +132,7 @@ def test_gallery_sessions_are_selectable_and_show_heartbeat(gallery_server, page
     row = page.locator(".rn-session-row").first
     expect(row).to_be_visible(timeout=15_000)
     expect(page.locator(".rn-session-row--active")).to_have_count(1, timeout=5_000)
+    page.get_by_role("button", name="Info").click()
     expect(page.locator(".rn-kv-key", has_text="life_sign")).to_be_visible(timeout=5_000)
     expect(row).to_contain_text(re.compile(r"(alive \d+s|timeout)"), timeout=5_000)
     expect(row).not_to_contain_text("last", timeout=5_000)
@@ -158,6 +159,26 @@ def test_gallery_debug_pane_does_not_auto_show(gallery_server, page: Page) -> No
 
     page.locator("[data-test='btn-debug']").click()
     expect(page.locator(".rn-debug")).to_be_visible(timeout=5_000)
+
+
+def test_gallery_debug_actions_run_in_sample_iframe(gallery_server, page: Page) -> None:
+    base, _ = gallery_server
+    page.goto(base)
+    page.locator("[data-sample='counter']").click()
+    expect(page.locator("[data-test='current']")).to_contain_text(
+        "counter", timeout=20_000
+    )
+    page.locator("[data-test='btn-debug']").click()
+    page.get_by_text("Sessions").click()
+
+    expect(page.locator(".rn-session-row--active")).to_have_count(1, timeout=15_000)
+    action = page.locator(".rn-action-grid", has_text="Dozen")
+    expect(action).to_be_visible(timeout=15_000)
+    action.get_by_role("button", name="Dozen").click()
+    expect(page.get_by_text("ran counter.set:dozen")).to_be_visible(timeout=5_000)
+    expect(page.frame_locator("[data-test='frame']").locator("#val")).to_contain_text(
+        "12", timeout=5_000
+    )
 
 
 def test_sample_inherits_dark_mode(gallery_server, page: Page) -> None:

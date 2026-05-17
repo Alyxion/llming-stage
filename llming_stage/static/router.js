@@ -53,6 +53,13 @@
     currentView = route.view;
     const result = await viewApi.mount(mountTarget, params);
     currentUnmount = (result && typeof result.unmount === 'function') ? result.unmount : null;
+    if (window.__stage.debug && window.__stage.debug.enabled) {
+      try {
+        await window.__stage.debug.loadForView(route.view);
+      } catch (e) {
+        console.warn('[llming-stage] debug actions failed to load for ' + route.view, e);
+      }
+    }
     return true;
   }
 

@@ -7,39 +7,47 @@
 [![PyPI version](https://img.shields.io/pypi/v/llming-stage.svg)](https://pypi.org/project/llming-stage/)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-purple.svg)](https://github.com/astral-sh/ruff)
 
-### Build Vue + Quasar UIs that AI can build, drive, and debug.
+### AI-native frontend development where AI builds, inspects, and operates.
 
-`llming-stage` is the SPA foundation for AI-assisted frontend work. You write a real Vue + Quasar app, not a Python shim. Reactive traffic and sessions flow through [`llming-com`](https://github.com/Alyxion/llming-com), and that's the same channel an AI assistant uses to inspect state, invoke commands, and push events into the running page.
+Build real apps, dashboards, and internal tools as browser UIs your AI can understand and control. `llming-stage` gives an AI assistant a live stage to work on: it can inspect the running browser, call server commands, react to session state, and push updates into the page through the same channel your app uses.
 
 <p align="center"><img src="https://raw.githubusercontent.com/Alyxion/llming-stage/main/media/readme-showcase.webp" alt="llming-stage sample showcase" width="760"></p>
 
-`llming-com` ships the sessions, auth, command dispatcher, and the debug surface — without it, the AI side of the picture goes away. When you eventually deploy and the app no longer needs server reactivity, the same shell + view modules can ship as a static bundle to any CDN.
+Build the app as a real browser UI, then let AI operate it while it runs. Under the hood, `llming-stage` ships the app shell, bundled frontend libraries, local assets, routing, lazy loading, and the `llming-com` session wire.
 
 ---
 
 ### What you get
 
-- **An AI-debuggable runtime** — every reactive command, session, and event is browseable, invokable, and observable through one HTTP / MCP surface.
-- **FastAPI-native app mounting** — create your own `FastAPI()` app and attach `Stage(app)`, or let `Stage()` create the default FastAPI app for compact demos. The internal `/_stage` routes and development reload are ensured once; server startup stays normal FastAPI/ASGI (`uvicorn main:app --reload`, deployment servers, etc.).
-- **Modern frontend, zero boilerplate** — Vue 3 + Quasar 2 + bundled Tailwind utilities with a lazy-load orchestrator and an SPA router that keeps the WebSocket and view state alive across navigations.
-- **Per-user sessions out of the box** — `llming-com` runs the wire and the auth; you write JS views and Python handlers.
-- **Static-deployable** — when there's no server-side reactivity at runtime, the same code ships to GitHub Pages, S3, or any CDN.
-- **No third-party network** — every asset is vendored. A page loaded from an `llming-stage` app makes zero requests to Google Fonts, jsDelivr, or any other external host. Privacy/GDPR-friendly by default; enforced by static and runtime tests.
+- **AI-operable apps** - every session, command, and server-pushed event can be inspected and invoked through the debug surface.
+- **One live channel per user** - reactive traffic runs over the per-session `llming-com` WebSocket; no duplicate app sockets.
+- **Real frontend code** - write normal view files and components instead of Python pretending to be UI.
+- **Fast local iteration** - run a sample, edit a view, and keep the browser shell, sessions, and debug tools alive.
+- **Vendored assets** - no runtime calls to Google Fonts, jsDelivr, unpkg, cdnjs, analytics beacons, or other third-party hosts.
+- **Static exit path** - when an app no longer needs server reactivity, the same shell and view modules can be shipped as static files.
 
 ---
 
-### See it in action
+### Try it
 
 ```bash
 poetry install
-./samples/run.sh        # opens a web gallery at http://localhost:8000
+poetry run python samples/gallery.py
 ```
 
-Fourteen sample apps — from a tiny static app to generated decorator views, llming-com reactive loops, a Three.js particle tornado, an 8-chart ECharts dashboard, Plotly full-bundle charts, a core component workbench, and an optional-extension workbench — with dark/light theme, hot reload, and AI-debug control.
+Open `http://127.0.0.1:8000` and switch between the polished samples: Three.js, analytics dashboards, Plotly charts, command-driven sessions, uploads, and the extension workbench.
+
+To inspect an already-running debug-enabled app without changing its UI:
+
+```bash
+LLMING_STAGE_DEBUG_TOKEN=s3cret llming-stage inspect http://127.0.0.1:8765
+```
+
+Open `http://127.0.0.1:8000/`. The inspector attaches from the outside; your app keeps rendering exactly its own UI.
 
 ---
 
-### Minimal app
+### Minimal App
 
 ```python
 from llming_stage import Stage
@@ -56,22 +64,15 @@ if __name__ == "__main__":
 </template>
 ```
 
-For a purely static app, no Python file is needed:
+For a static view without a Python app:
 
 ```bash
 llming-stage serve hello.vue
 ```
 
-`Stage()` mounts the bundled assets, the Vue + Quasar shell, the SPA
-router, bundled Tailwind utilities, and content-hash development reload
-by default.
+---
 
-`stage.run()` is a thin local-development wrapper around `uvicorn.run`.
-If you need workers, custom logging, TLS, or deployment process
-management, run the same app directly with normal ASGI tooling.
-
-Reactive apps add a typed session router and let Stage mount the
-conventional session routes:
+### Reactive App
 
 ```python
 from fastapi import FastAPI
@@ -92,22 +93,22 @@ async def inc(session, by: int = 1):
 stage.add_view("/", "home.vue")
 ```
 
-The browser gets a real Vue + Quasar SPA from `.vue` view files.
-`llming-com` carries the wire, the sessions, and the debug surface the
-AI uses.
+`llming-stage` mounts the browser shell and asset routes. `llming-com` carries the authenticated session, command dispatch, and AI-debug surface.
 
 ---
 
-### Learn more
+### Learn More
 
-Full docs in [`docs/content/`](docs/content):
-
-- [Quick start](docs/content/installation.md) · [Stage apps](docs/content/stage.md) · [App shell](docs/content/shell.md) · [Communication model](docs/content/communication-model.md)
-- [llming-com integration](docs/content/llming-com.md) · [Assets & lazy loading](docs/content/lazy-loading.md)
-- [Security](docs/content/security.md) · [API reference](docs/content/api.md)
+- [Quick start](https://github.com/Alyxion/llming-stage/blob/main/docs/content/installation.md)
+- [Stage apps](https://github.com/Alyxion/llming-stage/blob/main/docs/content/stage.md)
+- [Communication model](https://github.com/Alyxion/llming-stage/blob/main/docs/content/communication-model.md)
+- [llming-com integration](https://github.com/Alyxion/llming-stage/blob/main/docs/content/llming-com.md)
+- [Assets and lazy loading](https://github.com/Alyxion/llming-stage/blob/main/docs/content/lazy-loading.md)
+- [Security](https://github.com/Alyxion/llming-stage/blob/main/docs/content/security.md)
+- [API reference](https://github.com/Alyxion/llming-stage/blob/main/docs/content/api.md)
 
 <p align="center"><img src="https://raw.githubusercontent.com/Alyxion/llming-stage/main/media/runtime-architecture.png" alt="llming-stage runtime architecture" width="760"></p>
 
 ---
 
-MIT licensed. © 2026 [Michael Ikemann](https://github.com/Alyxion). Bundled third-party files are listed in [`THIRD_PARTY.md`](THIRD_PARTY.md); no AGPL/GPL/LGPL is ever permitted.
+MIT licensed. Bundled third-party files are listed in [THIRD_PARTY.md](https://github.com/Alyxion/llming-stage/blob/main/THIRD_PARTY.md); no AGPL/GPL/LGPL is permitted.

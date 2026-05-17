@@ -25,12 +25,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-
-# Per-process version string appended to legacy view-module URLs. New
-# samples use root-level .vue files through Stage; this remains for the
-# low-level compatibility path.
-_VIEW_VERSION = os.environ.get("STAGE_VIEW_VERSION", str(int(time.time() * 1000)))
-
 from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -49,6 +43,10 @@ from llming_com.ws_router import AppRouter, SessionRouter
 
 from llming_stage import ShellConfig, Stage, is_debug_enabled, mount_assets, mount_shell
 
+# Per-process version string appended to legacy view-module URLs. New
+# samples use root-level .vue files through Stage; this remains for the
+# low-level compatibility path.
+_VIEW_VERSION = os.environ.get("STAGE_VIEW_VERSION", str(int(time.time() * 1000)))
 _PROCESS_AUTH_SECRET = "llming_stage_sample_" + secrets.token_urlsafe(32)
 
 

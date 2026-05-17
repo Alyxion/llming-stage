@@ -11,7 +11,7 @@ from starlette.responses import HTMLResponse
 from starlette.testclient import TestClient
 
 from llming_stage import Stage, StageSession, VueResponse
-from llming_stage.cli import build_app
+from llming_stage.cli import build_app, main as cli_main
 
 
 def test_stage_view_serves_vue_and_shell(tmp_path: Path) -> None:
@@ -32,6 +32,59 @@ def test_stage_view_serves_vue_and_shell(tmp_path: Path) -> None:
     assert view.status_code == 200
     assert "Vue.createApp" in view.text
     assert "Hello stage" in view.text
+
+
+def test_debug_sidecar_is_not_exposed_without_debug_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("LLMING_STAGE_DEBUG", raising=False)
+    (tmp_path / "home.vue").write_text(
+        "<template><main>Hello stage</main></template>",
+        encoding="utf-8",
+    )
+    (tmp_path / "home.debug.js").write_text(
+        'export default function debug(ctx) { ctx.action("x", () => {}); }',
+        encoding="utf-8",
+    )
+    app = Starlette()
+    Stage(app, root=tmp_path, dev=False).add_view("/", "home.vue")
+
+    with TestClient(app) as client:
+        shell = client.get("/")
+        sidecar = client.get("/_stage/app/home.debug.js")
+
+    assert shell.status_code == 200
+    assert "home.debug.js" not in shell.text
+    assert "enabled: false" in shell.text
+    assert sidecar.status_code == 200
+    assert "window.__stageRouter.start()" in sidecar.text
+
+
+def test_debug_sidecar_is_registered_when_debug_env_is_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LLMING_STAGE_DEBUG", "1")
+    (tmp_path / "home.vue").write_text(
+        "<template><main>Hello stage</main></template>",
+        encoding="utf-8",
+    )
+    (tmp_path / "home.debug.js").write_text(
+        'export default function debug(ctx) { ctx.action("home.demo", () => {}); }',
+        encoding="utf-8",
+    )
+    app = Starlette()
+    Stage(app, root=tmp_path, dev=False).add_view("/", "home.vue")
+
+    with TestClient(app) as client:
+        shell = client.get("/")
+        sidecar = client.get("/_stage/app/home.debug.js")
+
+    assert shell.status_code == 200
+    assert "enabled: true" in shell.text
+    assert "home.debug.js" in shell.text
+    assert sidecar.status_code == 200
+    assert "home.demo" in sidecar.text
+    assert sidecar.headers["cache-control"] == "no-store"
 
 
 def test_stage_can_create_default_fastapi_app(tmp_path: Path) -> None:
@@ -129,6 +182,19 @@ def test_cli_build_app_maps_single_vue_directory_to_home(tmp_path: Path) -> None
     assert "__stageRouter.register('/', 'home')" in shell.text
     assert module.status_code == 200
     assert "Single Vue directory" in module.text
+
+
+def test_cli_inspect_refuses_public_bind(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    import types
+
+    def fail_run(*args, **kwargs):
+        raise AssertionError("uvicorn.run must not be called for a public bind")
+
+    monkeypatch.setitem(sys.modules, "uvicorn", types.SimpleNamespace(run=fail_run))
+
+    with pytest.raises(SystemExit, match="only binds to localhost"):
+        cli_main(["inspect", "http://127.0.0.1:8765", "--host", "0.0.0.0"])
 
 
 def test_stage_view_decorator_registers_generated_html(tmp_path: Path) -> None:
@@ -478,11 +544,27 @@ def test_stage_session_debug_routes_not_mounted_without_env(
 
     monkeypatch.delenv("LLMING_STAGE_DEBUG", raising=False)
     app = FastAPI()
-    Stage(app, dev=False).session()
+    stage_session = Stage(app, dev=False).session()
 
     paths = [getattr(r, "path", "") for r in app.router.routes]
     assert "/cmd/sessions/{session_id}/debug.state" not in paths
     assert "/cmd/sessions/{session_id}/debug.ws_dispatch" not in paths
+    table = stage_session.session_router.build_dispatch_table()
+    assert "llming.debug.console" not in table
+    assert "llming.debug.eval_result" not in table
+
+
+def test_stage_session_internal_debug_handlers_are_env_gated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi import FastAPI
+
+    monkeypatch.setenv("LLMING_STAGE_DEBUG", "1")
+    stage_session = Stage(FastAPI(), dev=False).session()
+
+    table = stage_session.session_router.build_dispatch_table()
+    assert "llming.debug.console" in table
+    assert "llming.debug.eval_result" in table
 
 
 def test_stage_session_debug_routes_require_matching_cookie(

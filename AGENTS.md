@@ -86,6 +86,7 @@ calling `Stage(app)` once and writing `.vue` view files.
 | Full API reference | `docs/content/api.md` |
 | Lazy-loading catalog | `docs/content/lazy-loading.md` |
 | Security hardening | `docs/content/security.md` |
+| Debug endpoint + debug action sidecars | `docs/content/debug.md` |
 | Vendored files + licenses + bundle version stamp | `THIRD_PARTY.md` |
 | Runnable examples (do **not** pin `lib_version`) | `samples/` |
 | Cross-cutting rules + rationale (long form) | `CLAUDE.md` |

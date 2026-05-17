@@ -83,6 +83,8 @@ def test_stage_vue_app_renders_and_autoreloads(
     page.goto(base)
     expect(page.locator("#title")).to_have_text("Hello stage", timeout=15_000)
     expect(page.locator("#button")).to_contain_text("It works")
+    expect(page.locator("#stage-controls")).to_have_count(0)
+    expect(page.locator("[data-test='stage-restart']")).to_have_count(0)
     page.wait_for_function("window.__llmingStageDevReload === true")
 
     home.write_text(

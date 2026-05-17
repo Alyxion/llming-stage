@@ -31,6 +31,9 @@ Queries: ``info``, ``metrics``, ``threads``, ``modules``, ``stack``,
 from __future__ import annotations
 
 import collections
+import asyncio
+import inspect
+import itertools
 import os
 import sys
 import threading
@@ -137,6 +140,10 @@ _installed = False
 _stdout_buffer = _RingBuffer(_BUFFER_LINES)
 _stderr_buffer = _RingBuffer(_BUFFER_LINES)
 _process_start = time.time()
+_js_eval_seq = itertools.count(1)
+_js_console_logs: dict[str, collections.deque[dict[str, Any]]] = {}
+_js_eval_waiters: dict[str, asyncio.Future[dict[str, Any]]] = {}
+_js_console_lock = threading.Lock()
 
 
 def install_stream_capture() -> None:
@@ -153,6 +160,82 @@ def install_stream_capture() -> None:
         sys.stdout = _TeeStream(sys.stdout, _stdout_buffer)  # type: ignore[assignment]
         sys.stderr = _TeeStream(sys.stderr, _stderr_buffer)  # type: ignore[assignment]
         _installed = True
+
+
+# ---------------------------------------------------------------------------
+# Per-session browser console bridge
+# ---------------------------------------------------------------------------
+
+
+def _safe_text(value: Any, *, limit: int = 20000) -> str:
+    if isinstance(value, str):
+        text = value
+    else:
+        try:
+            import json
+
+            text = json.dumps(value, ensure_ascii=False)
+        except Exception:
+            text = str(value)
+    return text if len(text) <= limit else text[:limit] + "..."
+
+
+def _append_js_log(session_id: str, entry: dict[str, Any]) -> None:
+    if not session_id:
+        return
+    record = {
+        "ts": time.time(),
+        "tag": _safe_text(entry.get("tag") or "[JS]", limit=32),
+        "text": _safe_text(entry.get("text") or ""),
+    }
+    with _js_console_lock:
+        buf = _js_console_logs.setdefault(
+            session_id, collections.deque(maxlen=_BUFFER_LINES)
+        )
+        buf.append(record)
+
+
+def record_js_console(session_id: str, payload: dict[str, Any]) -> None:
+    """Record a browser console line emitted by a debug-enabled session."""
+
+    level = _safe_text(payload.get("level") or "log", limit=16)
+    tag = {
+        "error": "[JS!]",
+        "warn": "[JS*]",
+        "debug": "[JS?]",
+        "info": "[JSi]",
+        "log": "[JS]",
+    }.get(level, "[JS]")
+    _append_js_log(session_id, {"tag": tag, "text": payload.get("text", "")})
+
+
+def record_js_eval_result(session_id: str, payload: dict[str, Any]) -> None:
+    """Record and resolve a browser-side JavaScript eval result."""
+
+    eval_id = _safe_text(payload.get("id") or "", limit=128)
+    ok = bool(payload.get("ok"))
+    text = payload.get("result") if ok else payload.get("error")
+    result = {
+        "id": eval_id,
+        "ok": ok,
+        "text": _safe_text(text if text is not None else ""),
+    }
+    _append_js_log(
+        session_id,
+        {"tag": "<-" if ok else "x", "text": result["text"]},
+    )
+    future = _js_eval_waiters.pop(eval_id, None)
+    if future is not None and not future.done():
+        future.set_result(result)
+
+
+def _js_console_tail(session_id: str, n: int) -> list[dict[str, Any]]:
+    with _js_console_lock:
+        buf = _js_console_logs.get(session_id)
+        if not buf:
+            return []
+        items = list(buf)
+    return items[-n:] if n >= 0 else items
 
 
 # Install at import time when the env var is already set, so even
@@ -424,6 +507,91 @@ def _query_session_state(args: dict[str, Any], websocket: WebSocket | None) -> d
     }
 
 
+def _query_js_console_tail(args: dict[str, Any], websocket: WebSocket | None) -> dict[str, Any]:
+    sid = args.get("session_id")
+    if not sid:
+        return {"error": "session_id required", "logs": []}
+    try:
+        n = int(args.get("n", _DEFAULT_TAIL))
+    except (TypeError, ValueError):
+        n = _DEFAULT_TAIL
+    registry = _session_registry(websocket)
+    if registry is None:
+        return {"error": "no session registry mounted", "logs": []}
+    entry = registry.get_session(sid) if hasattr(registry, "get_session") else None
+    if entry is None:
+        return {"error": f"session not found: {sid}", "logs": []}
+    return {
+        "record": _session_record(sid, entry),
+        "logs": _js_console_tail(str(sid), n),
+    }
+
+
+async def _query_js_eval(args: dict[str, Any], websocket: WebSocket | None) -> dict[str, Any]:
+    sid = args.get("session_id")
+    code = args.get("code")
+    if not sid:
+        return {"ok": False, "error": "session_id required", "logs": []}
+    if not isinstance(code, str) or not code.strip():
+        return {"ok": False, "error": "code required", "logs": _js_console_tail(str(sid), _DEFAULT_TAIL)}
+    registry = _session_registry(websocket)
+    if registry is None:
+        return {"ok": False, "error": "no session registry mounted", "logs": []}
+    entry = registry.get_session(sid) if hasattr(registry, "get_session") else None
+    if entry is None:
+        return {"ok": False, "error": f"session not found: {sid}", "logs": []}
+    controller = getattr(entry, "controller", None)
+    if controller is None:
+        _append_js_log(str(sid), {"tag": "x", "text": "session has no active WebSocket"})
+        return {
+            "ok": False,
+            "error": "session has no active WebSocket",
+            "logs": _js_console_tail(str(sid), _DEFAULT_TAIL),
+        }
+
+    eval_id = f"{sid}:{int(time.time() * 1000)}:{next(_js_eval_seq)}"
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[dict[str, Any]] = loop.create_future()
+    _js_eval_waiters[eval_id] = future
+    _append_js_log(str(sid), {"tag": ">", "text": code})
+
+    try:
+        sent = False
+        send = getattr(controller, "send", None)
+        if callable(send):
+            sent = bool(
+                await send(
+                    {
+                        "type": "llming.debug.eval",
+                        "id": eval_id,
+                        "code": code,
+                    }
+                )
+            )
+        if not sent:
+            _js_eval_waiters.pop(eval_id, None)
+            _append_js_log(str(sid), {"tag": "x", "text": "failed to send eval command"})
+            return {
+                "ok": False,
+                "error": "failed to send eval command",
+                "logs": _js_console_tail(str(sid), _DEFAULT_TAIL),
+            }
+        timeout = float(args.get("timeout", 8.0) or 8.0)
+        result = await asyncio.wait_for(future, timeout=max(0.5, min(timeout, 30.0)))
+        return {
+            **result,
+            "logs": _js_console_tail(str(sid), _DEFAULT_TAIL),
+        }
+    except asyncio.TimeoutError:
+        _js_eval_waiters.pop(eval_id, None)
+        _append_js_log(str(sid), {"tag": "x", "text": "JavaScript eval timed out"})
+        return {
+            "ok": False,
+            "error": "JavaScript eval timed out",
+            "logs": _js_console_tail(str(sid), _DEFAULT_TAIL),
+        }
+
+
 def _query_stdout_tail(args: dict[str, Any]) -> list[str]:
     n = int(args.get("n", _DEFAULT_TAIL))
     return _stdout_buffer.tail(n)
@@ -450,6 +618,8 @@ _HANDLERS: dict[str, Any] = {
 _CTX_HANDLERS: dict[str, Any] = {
     "sessions": _query_sessions,
     "session_state": _query_session_state,
+    "js_console_tail": _query_js_console_tail,
+    "js_eval": _query_js_eval,
 }
 
 
@@ -515,6 +685,8 @@ async def _debug_ws(websocket: WebSocket) -> None:
                     data = ctx_handler(args, websocket)
                 else:
                     data = handler(args)
+                if inspect.isawaitable(data):
+                    data = await data
             except Exception as exc:  # pragma: no cover  (defensive)
                 await websocket.send_json(
                     {"id": qid, "ok": False, "error": f"{type(exc).__name__}: {exc}"}
@@ -552,4 +724,6 @@ __all__ = [
     "install_stream_capture",
     "is_debug_enabled",
     "mount_debug",
+    "record_js_console",
+    "record_js_eval_result",
 ]

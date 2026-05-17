@@ -111,7 +111,11 @@ def make_dir_handler(root: Path, cache_max_age: int = 31536000):
     outcome for every rejection path, to avoid leaking structure.
     """
     root = root.resolve(strict=True)
-    cache_control = f"public, max-age={cache_max_age}, immutable"
+    cache_control = (
+        "no-store"
+        if cache_max_age <= 0
+        else f"public, max-age={cache_max_age}, immutable"
+    )
 
     async def handler(request: Request) -> Response:
         rel = validate_relative_path(request.path_params.get("path", ""))

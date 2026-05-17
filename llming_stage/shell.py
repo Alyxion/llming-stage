@@ -80,7 +80,7 @@ class ShellConfig:
     title: str = "llming"
     asset_prefix: str = "/_stage"
     routes: list[tuple[str, str]] = field(default_factory=list)
-    view_modules: dict[str, str] = field(default_factory=dict)
+    view_modules: dict[str, str | dict[str, str]] = field(default_factory=dict)
     extra_head: str = ""
     extra_body: str = ""
     preload_views: list[str] = field(default_factory=list)
@@ -99,6 +99,9 @@ class ShellConfig:
     # can mirror console.* output, eval JS, and introspect loaded
     # extensions. Stage flips this on when LLMING_STAGE_DEBUG is set.
     debug_bridge: bool = False
+    # Enables client-side Debug Actions. Unlike the iframe bridge, this
+    # does not require a parent origin; it is gated by server debug mode.
+    debug_enabled: bool = False
     # Exact parent origin allowed to drive that bridge. Empty disables the
     # iframe bridge even when process debug mode is on.
     debug_parent_origin: str = ""
@@ -109,9 +112,12 @@ def render_shell(config: ShellConfig) -> str:
     prefix = config.asset_prefix.rstrip("/")
     if config.lib_version_segment:
         prefix = f"{prefix}/v{config.lib_version_segment}"
+    runtime_cache_bust = config.dev_reload or config.debug_enabled
+    loader_url = _static_runtime_url(prefix, "loader.js", cache_bust=runtime_cache_bust)
+    router_url = _static_runtime_url(prefix, "router.js", cache_bust=runtime_cache_bust)
     view_registrations_js = "\n".join(
-        f"  window.__stage.register({_js_str(name)}, {{js: {_js_str(url)}}});"
-        for name, url in config.view_modules.items()
+        _view_registration_js(name, entry)
+        for name, entry in config.view_modules.items()
     )
     routes_js = "\n".join(
         f"  window.__stageRouter.register({_js_str(p)}, {_js_str(v)});"
@@ -136,7 +142,11 @@ def render_shell(config: ShellConfig) -> str:
 <link rel="stylesheet" href="{prefix}/fonts/fonts.css">
 <link rel="stylesheet" href="{prefix}/vendor/quasar.prod.css">
 <script>window.__stageBase = {_js_str(prefix)};
-window.__stageLibVersion = {_js_str(config.lib_version)};</script>
+window.__stageLibVersion = {_js_str(config.lib_version)};
+window.__stageDebug = {{
+  enabled: {str(bool(config.debug_enabled)).lower()},
+  modules: {{}}
+}};</script>
 <style type="text/tailwindcss">
 @import "tailwindcss/theme";
 @import "tailwindcss/utilities";
@@ -178,8 +188,8 @@ window.__stageLibVersion = {_js_str(config.lib_version)};</script>
 </script>
 <script src="{prefix}/llming-com/llming-ws.js"></script>
 <script>window.LlmingWebSocket = LlmingWebSocket;</script>
-<script src="{prefix}/loader.js"></script>
-<script src="{prefix}/router.js"></script>
+<script src="{loader_url}"></script>
+<script src="{router_url}"></script>
 <script>
 (function () {{
 {view_registrations_js}
@@ -287,6 +297,53 @@ def _debug_bridge_script(parent_origin: str) -> str:
         stage_base: window.__stageBase, stage_lib_version: window.__stageLibVersion}, TGT);
       return;
     }
+    if (m.type === 'debug-actions') {
+      var debug = window.__stage && window.__stage.debug;
+      var snapshot = debug && debug.snapshot ? debug.snapshot() : {
+        enabled: false, actions: [], flows: [], pinned: [], runOnce: [], runAlways: [], recent: []
+      };
+      Promise.resolve(snapshot).then(function (value) {
+        window.parent.postMessage({source: SRC, type: 'debug-actions-result',
+          id: m.id, snapshot: value}, TGT);
+      }, function (err) {
+        window.parent.postMessage({source: SRC, type: 'debug-actions-result',
+          id: m.id, snapshot: {enabled: false, actions: [], flows: [], pinned: [],
+            runOnce: [], runAlways: [], recent: [], error: String(err && err.message || err)}}, TGT);
+      });
+      return;
+    }
+    if (m.type === 'debug-run') {
+      var dbg = window.__stage && window.__stage.debug;
+      if (!dbg || !dbg.runRequest) {
+        window.parent.postMessage({source: SRC, type: 'debug-run-result',
+          id: m.id, ok: false, error: 'debug actions unavailable'}, TGT);
+        return;
+      }
+      dbg.runRequest(m.request).then(function (result) {
+        window.parent.postMessage({source: SRC, type: 'debug-run-result',
+          id: m.id, ok: true, result: result || {}}, TGT);
+      }, function (err) {
+        window.parent.postMessage({source: SRC, type: 'debug-run-result',
+          id: m.id, ok: false, error: String(err && err.message || err)}, TGT);
+      });
+      return;
+    }
+    if (m.type === 'debug-config') {
+      var d = window.__stage && window.__stage.debug;
+      if (!d || !d.configure) {
+        window.parent.postMessage({source: SRC, type: 'debug-config-result',
+          id: m.id, ok: false, error: 'debug actions unavailable'}, TGT);
+        return;
+      }
+      d.configure(m.request).then(function (snapshot) {
+        window.parent.postMessage({source: SRC, type: 'debug-config-result',
+          id: m.id, ok: true, snapshot: snapshot}, TGT);
+      }, function (err) {
+        window.parent.postMessage({source: SRC, type: 'debug-config-result',
+          id: m.id, ok: false, error: String(err && err.message || err)}, TGT);
+      });
+      return;
+    }
   });
   try {
     window.parent.postMessage({source: SRC, type: 'ready',
@@ -317,6 +374,33 @@ def _js_str(value: str) -> str:
     return f"'{escaped}'"
 
 
+def _static_runtime_url(prefix: str, name: str, *, cache_bust: bool) -> str:
+    url = f"{prefix}/{name}"
+    if not cache_bust:
+        return url
+    try:
+        stamp = int((_STATIC_ROOT / name).stat().st_mtime)
+    except OSError:
+        stamp = 0
+    return f"{url}?v={stamp}"
+
+
+def _view_registration_js(name: str, entry: str | dict[str, str]) -> str:
+    if isinstance(entry, str):
+        js_url = entry
+        debug_url = ""
+    else:
+        js_url = entry.get("js", "")
+        debug_url = entry.get("debug", "")
+    lines = [f"  window.__stage.register({_js_str(name)}, {{js: {_js_str(js_url)}}});"]
+    if debug_url:
+        lines.append(
+            f"  if (window.__stageDebug && window.__stageDebug.enabled) "
+            f"window.__stageDebug.modules[{_js_str(name)}] = {_js_str(debug_url)};"
+        )
+    return "\n".join(lines)
+
+
 def _asset_routes(
     asset_prefix: str,
     *,
@@ -335,12 +419,12 @@ def _asset_routes(
     routes: list[Route] = []
 
     async def loader_js(request: Request) -> Response:
-        handler = make_dir_handler(static_dir)
+        handler = make_dir_handler(static_dir, cache_max_age=0)
         request.path_params["path"] = "loader.js"
         return await handler(request)
 
     async def router_js(request: Request) -> Response:
-        handler = make_dir_handler(static_dir)
+        handler = make_dir_handler(static_dir, cache_max_age=0)
         request.path_params["path"] = "router.js"
         return await handler(request)
 

@@ -5,10 +5,13 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from .inspector import InspectorConfig, create_inspector_app
 from .shell import export_package_assets
 from .stage import Stage
 
 _VIEW_EXTENSIONS = {".vue", ".html", ".htm", ".js"}
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
 
 def build_app(root: Path, *, dev: bool = True):
     title = _title_for_root(root)
@@ -50,6 +53,31 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
 
+    inspect = sub.add_parser(
+        "inspect",
+        help="open an inspector for an already-running llming-stage app",
+        description=(
+            "Runs a same-origin inspector proxy on its own port. The target "
+            "app is shown unchanged in an iframe while the inspector UI is "
+            "served at /."
+        ),
+    )
+    inspect.add_argument("target", help="target app base URL, e.g. http://127.0.0.1:8765")
+    inspect.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="inspector bind host; loopback only",
+    )
+    inspect.add_argument("--port", type=int, default=8000)
+    inspect.add_argument(
+        "--token",
+        default="",
+        help=(
+            "LLMING_STAGE_DEBUG_TOKEN used by the target app. Defaults to "
+            "the local environment variable of the same name."
+        ),
+    )
+
     build = sub.add_parser("build", help="build a static no-Python stage app")
     build.add_argument("root", nargs="?", default=".")
     build.add_argument("--out", default="dist")
@@ -79,6 +107,26 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "export-assets":
         export_package_assets(Path(args.out).resolve(), write_manifest=args.manifest)
+        return 0
+
+    if args.cmd == "inspect":
+        try:
+            import os
+
+            import uvicorn
+        except ImportError as exc:
+            raise SystemExit(
+                "llming-stage inspect requires uvicorn. Install it with `pip install uvicorn`."
+            ) from exc
+        if args.host not in _LOOPBACK_HOSTS:
+            raise SystemExit(
+                "llming-stage inspect only binds to localhost/127.0.0.1/::1. "
+                "It proxies a debug target and must not be exposed on 0.0.0.0."
+            )
+        token = args.token or os.environ.get("LLMING_STAGE_DEBUG_TOKEN", "")
+        app = create_inspector_app(InspectorConfig(target=args.target, token=token))
+        print(f"Inspecting {args.target} at http://{args.host}:{args.port}/")
+        uvicorn.run(app, host=args.host, port=args.port)
         return 0
 
     root = Path(args.root).resolve()

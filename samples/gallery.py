@@ -491,6 +491,33 @@ _INDEX_HTML = r"""<!doctype html>
     box-shadow: none !important;
     color: var(--rn-text);
   }
+  .rn-debug-resize {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -4px;
+    height: 8px;
+    cursor: ns-resize;
+    z-index: 3;
+  }
+  .rn-debug-resize::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 3px;
+    width: 72px;
+    height: 2px;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.45);
+  }
+  .rn-debug-drag-cover {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    cursor: ns-resize;
+    background: transparent;
+  }
   .rn-debug-header {
     background: var(--rn-surface);
     border-bottom: 1px solid var(--rn-border);
@@ -536,6 +563,25 @@ _INDEX_HTML = r"""<!doctype html>
     color: var(--rn-text);
   }
   .rn-detail { background: var(--rn-bg); }
+  .rn-debug *::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  .rn-debug *::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.65);
+  }
+  .rn-debug *::-webkit-scrollbar-thumb {
+    background: rgba(100, 116, 139, 0.65);
+    border: 2px solid rgba(15, 23, 42, 0.65);
+    border-radius: 999px;
+  }
+  .rn-debug *::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.75);
+  }
+  .rn-debug * {
+    scrollbar-color: rgba(100, 116, 139, 0.65) rgba(15, 23, 42, 0.65);
+    scrollbar-width: thin;
+  }
   .rn-console {
     margin: 0;
     padding: 12px 14px;
@@ -774,6 +820,152 @@ _INDEX_HTML = r"""<!doctype html>
     border-radius: 4px;
     color: var(--rn-text);
   }
+  .rn-actions-toolbar {
+    height: 42px;
+    padding: 6px 10px;
+    background: var(--rn-surface);
+    border-bottom: 1px solid var(--rn-border);
+    gap: 8px;
+  }
+  .rn-actions-search {
+    width: 260px;
+    max-width: 45vw;
+    background: var(--rn-bg);
+    border: 1px solid var(--rn-border);
+    border-radius: 6px;
+    color: var(--rn-text);
+    font: 12px/1.3 var(--rn-mono);
+    padding: 6px 9px;
+    outline: none;
+  }
+  .rn-action-card {
+    border-bottom: 1px solid var(--rn-border);
+    padding: 10px 12px;
+    color: var(--rn-text);
+  }
+  .rn-action-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--rn-text);
+  }
+  .rn-action-meta {
+    font-family: var(--rn-mono);
+    font-size: 10px;
+    color: var(--rn-text-mut);
+    margin-top: 2px;
+  }
+  .rn-action-desc {
+    font-size: 11px;
+    color: var(--rn-text-dim);
+    margin-top: 4px;
+  }
+  .rn-action-param {
+    display: grid;
+    grid-template-columns: 88px minmax(120px, 220px);
+    gap: 6px;
+    align-items: center;
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--rn-text-dim);
+  }
+  .rn-action-param input,
+  .rn-action-param select {
+    width: 100%;
+    background: var(--rn-bg);
+    border: 1px solid var(--rn-border);
+    border-radius: 5px;
+    color: var(--rn-text);
+    font: 11px/1.3 var(--rn-mono);
+    padding: 4px 6px;
+    outline: none;
+  }
+  .rn-action-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+  .rn-action-btn {
+    min-height: 24px;
+    padding: 0 8px;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    border: 1px solid var(--rn-border);
+    border-radius: 5px;
+    background: var(--rn-surface);
+    color: var(--rn-text-dim);
+    cursor: pointer;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .rn-action-btn:hover {
+    color: var(--rn-text);
+    background: var(--rn-surface2);
+  }
+  .rn-action-btn:disabled {
+    cursor: default;
+    opacity: 0.55;
+  }
+  .rn-action-msg {
+    font-family: var(--rn-mono);
+    font-size: 11px;
+    color: var(--rn-text-dim);
+  }
+  .rn-session-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 7px 10px;
+    background: var(--rn-surface);
+    border-bottom: 1px solid var(--rn-border);
+  }
+  .rn-session-tab {
+    border: 1px solid transparent;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--rn-text-dim);
+    cursor: pointer;
+    font: 600 10px/1 "Roboto", sans-serif;
+    letter-spacing: 0.08em;
+    min-height: 24px;
+    padding: 0 10px;
+    text-transform: uppercase;
+  }
+  .rn-session-tab:hover,
+  .rn-session-tab--active {
+    background: var(--rn-surface2);
+    border-color: var(--rn-border);
+    color: var(--rn-text);
+  }
+  .rn-action-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    padding: 12px;
+  }
+  .rn-action-tile {
+    min-height: 74px;
+    border: 1px solid var(--rn-border);
+    border-radius: 7px;
+    background: var(--rn-surface);
+    color: var(--rn-text);
+    cursor: pointer;
+    padding: 10px 12px;
+    text-align: left;
+  }
+  .rn-action-tile:hover { background: var(--rn-surface2); }
+  .rn-action-tile-title {
+    display: block;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+  .rn-action-tile-meta {
+    display: block;
+    color: var(--rn-text-mut);
+    font-family: var(--rn-mono);
+    font-size: 10px;
+    margin-top: 5px;
+  }
 </style>
 </head>
 <body class="full-height no-margin rn-body">
@@ -846,7 +1038,9 @@ _INDEX_HTML = r"""<!doctype html>
       </q-page>
     </q-page-container>
 
-    <q-footer v-if="debugAvailable && debugDrawer" class="rn-debug" style="height: 280px">
+    <q-footer v-if="debugAvailable && debugDrawer" class="rn-debug" :style="{ height: debugHeight + 'px' }">
+      <div class="rn-debug-resize" @pointerdown="startDebugResize"></div>
+      <div v-if="resizingDebug" class="rn-debug-drag-cover"></div>
       <div class="column full-height">
         <div class="rn-debug-header row items-center no-wrap">
           <span class="rn-debug-title">Debug</span>
@@ -854,7 +1048,7 @@ _INDEX_HTML = r"""<!doctype html>
                 :class="debugReady ? 'rn-debug-status--on' : ''">
             {{ debugStatus }}
           </span>
-          <q-space />
+          <q-space></q-space>
           <span v-if="info.pid" class="rn-debug-status">pid {{ info.pid }}</span>
         </div>
         <div class="row no-wrap col">
@@ -879,7 +1073,7 @@ _INDEX_HTML = r"""<!doctype html>
                   <button class="rn-mode" :class="consoleMode === 'js' ? 'rn-mode--on' : ''"
                           @click="consoleMode = 'js'">JS</button>
                 </div>
-                <q-space />
+                <q-space></q-space>
                 <span class="rn-bridge-pill" :class="bridgeReady ? 'rn-bridge-pill--on' : ''">
                   JS bridge {{ bridgeReady ? 'ready' : 'idle' }}
                 </span>
@@ -963,10 +1157,10 @@ _INDEX_HTML = r"""<!doctype html>
 
             <!-- Sessions: list left, detail right -->
             <div v-else-if="activeDebugTab === 'sessions'" class="absolute-full row no-wrap">
-              <div class="col-5 column" style="border-right: 1px solid var(--rn-border); min-width: 0;">
+              <div class="column" style="border-right: 1px solid var(--rn-border); width: 260px; min-width: 220px; max-width: 300px;">
                 <div class="rn-sessions-bar row items-center no-wrap" v-if="sessionsAvailable">
                   <span class="rn-stat-label">{{ sessions.length }} session{{ sessions.length === 1 ? '' : 's' }}</span>
-                  <q-space />
+                  <q-space></q-space>
                   <span class="rn-live-pill">
                     <span class="rn-live-dot"></span>
                     live
@@ -996,7 +1190,7 @@ _INDEX_HTML = r"""<!doctype html>
                        @keyup.enter="openSession(s.session_id, { row: s })">
                     <div class="row no-wrap items-center">
                       <span class="rn-session-id">{{ s.session_id.slice(0, 12) }}</span>
-                      <q-space />
+                      <q-space></q-space>
                       <span class="rn-session-flag" :class="s.controller_ready ? 'rn-session-flag--on' : ''">
                         {{ s.controller_ready ? 'ws' : '—' }}
                       </span>
@@ -1015,38 +1209,100 @@ _INDEX_HTML = r"""<!doctype html>
                 </q-scroll-area>
               </div>
 	              <div class="col column" style="min-width: 0; position: relative;">
-                <q-scroll-area v-if="activeSessionDetail" class="col">
+                <div v-if="activeSessionDetail" class="absolute-full column no-wrap">
                   <div class="rn-section-header">{{ activeSessionId }}</div>
+                  <div class="rn-session-tabs">
+                    <button v-for="tab in sessionTabs" :key="tab.id" type="button"
+                            class="rn-session-tab"
+                            :class="activeSessionTab === tab.id ? 'rn-session-tab--active' : ''"
+                            @click="activeSessionTab = tab.id">
+                      {{ tab.label }}
+                    </button>
+                    <q-space></q-space>
+                    <span v-if="activeSessionTab === 'actions'" id="debug-action-message" class="rn-action-msg">{{ debugActionMessage }}</span>
+                  </div>
                   <div v-if="activeSessionDetail.error" class="rn-list-row rn-dim">
                     {{ activeSessionDetail.error }}
                   </div>
                   <template v-else>
-                    <div class="rn-kv">
-                      <span class="rn-kv-key">user_id</span>
-                      <span class="rn-kv-value">{{ activeSessionDetail.record?.user_id || '—' }}</span>
+                    <div v-if="activeSessionTab === 'actions'" class="col column no-wrap">
+                      <div class="rn-actions-toolbar row items-center no-wrap">
+                        <input v-model="actionSearch" class="rn-actions-search" placeholder="filter actions" />
+                        <span class="rn-action-msg">{{ selectedSessionActionStatus }}</span>
+                        <q-space></q-space>
+                        <button type="button" class="rn-action-btn" :disabled="!bridgeReady" @click="requestDebugActions">
+                          refresh
+                        </button>
+                      </div>
+                      <q-scroll-area class="col">
+                        <div v-if="!bridgeReady" class="rn-empty">
+                          <div class="rn-empty-title">Waiting for browser bridge</div>
+                          <div class="rn-empty-hint">Reload the sample if the selected session belongs to this preview.</div>
+                        </div>
+                        <div v-else-if="!selectedSessionHasActions" class="rn-empty">
+                          <div class="rn-empty-title">No actions for this session</div>
+                          <div class="rn-empty-hint">
+                            Debug actions are browser-session specific. Select the preview session, or reload the sample after debug sidecars are available.
+                          </div>
+                        </div>
+                        <div v-else-if="!debugActionItems.length" class="rn-empty">
+                          <div class="rn-empty-title">No matching actions</div>
+                          <div class="rn-empty-hint">Clear the filter or add a debug sidecar for the current view.</div>
+                        </div>
+                        <template v-else>
+                          <template v-for="group in groupedDebugActions" :key="group.name">
+                            <div class="rn-section-header">{{ group.name }}</div>
+                            <div class="rn-action-grid">
+                              <template v-for="item in group.items" :key="item.kind + ':' + item.id">
+                                <button v-if="!(item.presets || []).length" type="button" class="rn-action-tile"
+                                        data-debug-command="run"
+                                        :data-debug-id="item.id"
+                                        :data-debug-kind="item.kind"
+                                        :disabled="debugActionBusy === item.id">
+                                  <span class="rn-action-tile-title">{{ item.label }}</span>
+                                  <span class="rn-action-tile-meta">{{ item.kind }} · {{ item.id }}</span>
+                                </button>
+                                <button v-for="preset in item.presets || []" :key="item.id + ':' + preset.id"
+                                        type="button" class="rn-action-tile"
+                                        data-debug-command="preset"
+                                        :data-debug-id="item.id"
+                                        :data-debug-preset="preset.id">
+                                  <span class="rn-action-tile-title">{{ preset.label }}</span>
+                                  <span class="rn-action-tile-meta">{{ item.label }}</span>
+                                </button>
+                              </template>
+                            </div>
+                          </template>
+                        </template>
+                      </q-scroll-area>
                     </div>
-                    <div class="rn-kv">
-                      <span class="rn-kv-key">controller_ready</span>
-                      <span class="rn-kv-value">{{ activeSessionDetail.record?.controller_ready ? 'yes' : 'no' }}</span>
-                    </div>
-	                    <div class="rn-kv" v-if="activeSessionDetail.record?.last_seen">
-	                      <span class="rn-kv-key">last_seen</span>
-	                      <span class="rn-kv-value">{{ fmtTs(activeSessionDetail.record.last_seen) }}</span>
-	                    </div>
-	                    <div class="rn-kv" v-if="activeSessionDisplay?.record?.last_heartbeat">
-	                      <span class="rn-kv-key">life_sign</span>
-	                      <span class="rn-kv-value">
-	                        {{ activeSessionDisplay.record.heartbeat_text }}
-	                      </span>
-	                    </div>
-	                    <div class="rn-kv" v-if="activeSessionDetail.record?.created_at">
-	                      <span class="rn-kv-key">created_at</span>
-	                      <span class="rn-kv-value">{{ fmtTs(activeSessionDetail.record.created_at) }}</span>
-	                    </div>
-                    <div class="rn-section-header" style="margin-top: 8px;">state</div>
-                    <pre class="rn-state">{{ JSON.stringify(activeSessionDetail.state || {}, null, 2) }}</pre>
+                    <q-scroll-area v-else-if="activeSessionTab === 'state'" class="col">
+                      <pre class="rn-state">{{ JSON.stringify(activeSessionDetail.state || {}, null, 2) }}</pre>
+                    </q-scroll-area>
+                    <q-scroll-area v-else class="col">
+                      <div class="rn-kv">
+                        <span class="rn-kv-key">user_id</span>
+                        <span class="rn-kv-value">{{ activeSessionDetail.record?.user_id || '—' }}</span>
+                      </div>
+                      <div class="rn-kv">
+                        <span class="rn-kv-key">controller_ready</span>
+                        <span class="rn-kv-value">{{ activeSessionDetail.record?.controller_ready ? 'yes' : 'no' }}</span>
+                      </div>
+                      <div class="rn-kv" v-if="activeSessionDetail.record?.last_seen">
+                        <span class="rn-kv-key">last_seen</span>
+                        <span class="rn-kv-value">{{ fmtTs(activeSessionDetail.record.last_seen) }}</span>
+                      </div>
+                      <div class="rn-kv" v-if="activeSessionDisplay?.record?.last_heartbeat">
+                        <span class="rn-kv-key">life_sign</span>
+                        <span class="rn-kv-value">{{ activeSessionDisplay.record.heartbeat_text }}</span>
+                      </div>
+                      <div class="rn-kv" v-if="activeSessionDetail.record?.created_at">
+                        <span class="rn-kv-key">created_at</span>
+                        <span class="rn-kv-value">{{ fmtTs(activeSessionDetail.record.created_at) }}</span>
+                      </div>
+                    </q-scroll-area>
                   </template>
-                </q-scroll-area>
+                </div>
                 <div v-else class="absolute-full column items-center justify-center text-grey">
                   <span class="rn-stat-label">select a session</span>
                 </div>
@@ -1081,6 +1337,7 @@ _INDEX_HTML = r"""<!doctype html>
       const IDB_NAME = 'llming-stage-gallery';
       const IDB_STORE = 'prefs';
       const IDB_DEBUG_DRAWER = 'debug-drawer-open';
+      const IDB_DEBUG_HEIGHT = 'debug-height';
       function loadPref(key, fallback) {
         try {
           const v = localStorage.getItem(key);
@@ -1135,6 +1392,8 @@ _INDEX_HTML = r"""<!doctype html>
       const iframeKey = ref(0);
       const drawer = ref(true);
       const debugDrawer = ref(false);
+      const debugHeight = ref(340);
+      const resizingDebug = ref(false);
 
       // --- Debug WS state ---
       const debugAvailable = ref(false);   // true once a WS open succeeded
@@ -1149,6 +1408,9 @@ _INDEX_HTML = r"""<!doctype html>
         { id: 'modules',  label: 'Modules' },
         { id: 'sessions', label: 'Sessions' },
       ];
+      if (!debugTabs.some((tab) => tab.id === activeDebugTab.value)) {
+        activeDebugTab.value = 'sessions';
+      }
       const info = ref({});
       const metrics = ref({
         cpu_percent: 0, rss_bytes: 0, vms_bytes: 0,
@@ -1161,6 +1423,12 @@ _INDEX_HTML = r"""<!doctype html>
       const sessionsAvailable = ref(true);
 	      const activeSessionId = ref(null);
 	      const activeSessionDetail = ref(null);
+      const activeSessionTab = ref('actions');
+      const sessionTabs = [
+        { id: 'actions', label: 'Actions' },
+        { id: 'state', label: 'State' },
+        { id: 'info', label: 'Info' },
+      ];
 	      const sessionsRefreshedAt = ref(0);
 	      const nowTick = ref(Date.now());
 
@@ -1171,9 +1439,26 @@ _INDEX_HTML = r"""<!doctype html>
       const jsHistory = ref([]);
       let jsHistoryIdx = -1;
       let evalSeq = 1;
+      let bridgeSeq = 1;
       const evalPending = new Map();
+      const bridgePending = new Map();
       const bridgeReady = ref(false);
       const extensions = ref({ loaded: [], versions: {}, stage_base: '', stage_lib_version: '' });
+      const debugActionState = ref({
+        enabled: false,
+        sessionId: null,
+        currentView: null,
+        actions: [],
+        flows: [],
+        pinned: [],
+        runOnce: [],
+        runAlways: [],
+        recent: [],
+      });
+      const debugActionBusy = ref(null);
+      const debugActionMessage = ref('');
+      const actionSearch = ref('');
+      const actionParams = ref({});
 
       const consoleEntries = computed(() => {
         const m = consoleMode.value;
@@ -1218,6 +1503,50 @@ _INDEX_HTML = r"""<!doctype html>
 	          },
 	        };
 	      });
+      const selectedSessionHasActions = computed(() => {
+        const state = debugActionState.value || {};
+        return !!(
+          state.enabled &&
+          state.sessionId &&
+          activeSessionId.value &&
+          state.sessionId === activeSessionId.value
+        );
+      });
+      const debugActionItems = computed(() => {
+        if (!selectedSessionHasActions.value) return [];
+        const q = actionSearch.value.trim().toLowerCase();
+        const actions = (debugActionState.value.actions || [])
+          .filter((item) => item.button !== false)
+          .map((item) => ({ ...item, kind: 'action' }));
+        return actions.filter((item) => {
+          if (!q) return true;
+          return [item.id, item.label, item.description, item.scope, item.group, ...(item.tags || [])]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase()
+            .includes(q);
+        });
+      });
+      const groupedDebugActions = computed(() => {
+        const groups = new Map();
+        for (const item of debugActionItems.value) {
+          const name = (item.scope || 'app') + ' · ' + (item.group || 'General');
+          if (!groups.has(name)) groups.set(name, []);
+          groups.get(name).push(item);
+        }
+        return Array.from(groups.entries()).map(([name, items]) => ({ name, items }));
+      });
+      const selectedSessionActionStatus = computed(() => {
+        if (!bridgeReady.value) return 'browser bridge idle';
+        const state = debugActionState.value || {};
+        if (!state.enabled) return 'debug actions disabled';
+        if (!activeSessionId.value) return 'select a session';
+        if (!state.sessionId) return 'session not ready';
+        if (state.sessionId !== activeSessionId.value) {
+          return 'actions belong to session ' + state.sessionId.slice(0, 12);
+        }
+        return debugActionItems.value.length + ' available';
+      });
 
       const consoleEl = ref(null);
 	      let debugWs = null;
@@ -1259,6 +1588,12 @@ _INDEX_HTML = r"""<!doctype html>
         });
       }
 
+      function setDebugActionMessage(text) {
+        debugActionMessage.value = text || '';
+        const el = document.getElementById('debug-action-message');
+        if (el) el.textContent = text || '';
+      }
+
       // --- iframe <-> runner postMessage bridge (shell side opted in via env var)
       function postToIframe(payload) {
         const f = document.getElementById('frame');
@@ -1275,6 +1610,7 @@ _INDEX_HTML = r"""<!doctype html>
           // Pull initial extension list so the Modules tab shows the browser-side
           // libs without the user having to click first.
           postToIframe({ type: 'extensions', id: 'init' });
+          requestDebugActions();
           return;
         }
         if (m.type === 'console') {
@@ -1301,7 +1637,186 @@ _INDEX_HTML = r"""<!doctype html>
           };
           return;
         }
+        if (m.type === 'debug-actions-result') {
+          const p = bridgePending.get(m.id);
+          if (p) {
+            bridgePending.delete(m.id);
+            p.resolve(m.snapshot || {});
+          }
+          return;
+        }
+        if (m.type === 'debug-run-result' || m.type === 'debug-config-result') {
+          const p = bridgePending.get(m.id);
+          if (p) {
+            bridgePending.delete(m.id);
+            if (m.ok) p.resolve(m);
+            else p.reject(new Error(m.error || 'debug action failed'));
+          }
+          return;
+        }
       });
+
+      function bridgeRequest(payload, timeout = 5000) {
+        return new Promise((resolve, reject) => {
+          if (!bridgeReady.value) {
+            reject(new Error('browser bridge not ready'));
+            return;
+          }
+          const id = 'b' + (bridgeSeq++);
+          bridgePending.set(id, { resolve, reject });
+          postToIframe({ ...payload, id });
+          setTimeout(() => {
+            if (bridgePending.has(id)) {
+              bridgePending.delete(id);
+              reject(new Error('debug bridge timeout'));
+            }
+          }, timeout);
+        });
+      }
+
+      async function requestDebugActions() {
+        try {
+          debugActionState.value = await bridgeRequest({ type: 'debug-actions' });
+        } catch (e) {
+          setDebugActionMessage(e.message || String(e));
+        }
+      }
+
+      function debugItemRequest(item, params = {}) {
+        return item.kind === 'flow'
+          ? { kind: 'flow', id: item.id, source: 'gallery' }
+          : { kind: 'action', id: item.id, params, source: 'gallery' };
+      }
+
+      function paramKey(item, key) {
+        return item.id + ':' + key;
+      }
+
+      function debugParamValue(item, key, spec) {
+        const id = paramKey(item, key);
+        if (Object.prototype.hasOwnProperty.call(actionParams.value, id)) {
+          return actionParams.value[id];
+        }
+        return spec && Object.prototype.hasOwnProperty.call(spec, 'default') ? spec.default : '';
+      }
+
+      function setDebugParam(item, key, value) {
+        actionParams.value = { ...actionParams.value, [paramKey(item, key)]: value };
+      }
+
+      function collectDebugParams(item) {
+        const out = {};
+        for (const [key, spec] of Object.entries(item.params || {})) {
+          out[key] = debugParamValue(item, key, spec || {});
+        }
+        return out;
+      }
+
+      async function runDebugRequest(request, busyId) {
+        debugActionBusy.value = busyId;
+        setDebugActionMessage('');
+        try {
+          await bridgeRequest({ type: 'debug-run', request }, 10000);
+          setDebugActionMessage('ran ' + request.id);
+          await requestDebugActions();
+        } catch (e) {
+          setDebugActionMessage(e.message || String(e));
+        } finally {
+          debugActionBusy.value = null;
+        }
+      }
+
+      function runDebugAction(item) {
+        return runDebugRequest(debugItemRequest(item, collectDebugParams(item)), item.id);
+      }
+
+      function runDebugFlow(item) {
+        return runDebugRequest(debugItemRequest(item), item.id);
+      }
+
+      function runDebugPreset(item, preset) {
+        return runDebugRequest({
+          kind: 'preset',
+          id: item.id + ':' + preset.id,
+          source: 'gallery',
+        }, item.id + ':' + preset.id);
+      }
+
+      function encodeParams(params) {
+        const json = JSON.stringify(params || {});
+        const bin = btoa(unescape(encodeURIComponent(json)));
+        return bin.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+      }
+
+      async function copyDebugUrl(item) {
+        const url = new URL(iframeSrc.value || sampleOrigin + '/');
+        if (item.kind === 'flow') {
+          url.searchParams.set('stage_flow', item.id);
+        } else {
+          url.searchParams.set('stage_action', item.id);
+          const params = collectDebugParams(item);
+          if (Object.keys(params).length) url.searchParams.set('stage_params', encodeParams(params));
+        }
+        try {
+          await navigator.clipboard.writeText(url.toString());
+          setDebugActionMessage('copied URL');
+        } catch (_) {
+          setDebugActionMessage(url.toString());
+        }
+      }
+
+      async function toggleDebugSchedule(key, item) {
+        const currentList = Array.isArray(debugActionState.value[key]) ? debugActionState.value[key] : [];
+        const request = debugItemRequest(item, item.kind === 'action' ? collectDebugParams(item) : {});
+        const exists = currentList.some((entry) => entry.kind === request.kind && entry.id === request.id);
+        const next = exists
+          ? currentList.filter((entry) => !(entry.kind === request.kind && entry.id === request.id))
+          : [request, ...currentList];
+        try {
+          const result = await bridgeRequest({ type: 'debug-config', request: { key, value: next } });
+          debugActionState.value = result.snapshot || debugActionState.value;
+          setDebugActionMessage(exists ? 'removed from ' + key : 'added to ' + key);
+        } catch (e) {
+          setDebugActionMessage(e.message || String(e));
+        }
+      }
+
+      function findDebugItem(id, kind) {
+        return debugActionItems.value.find((item) =>
+          item.id === id && (!kind || item.kind === kind)
+        );
+      }
+
+      function runDebugActionButton(button, ev) {
+        if (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+        }
+        const command = button.dataset.debugCommand;
+        const item = findDebugItem(button.dataset.debugId, button.dataset.debugKind) || {
+          id: button.dataset.debugId,
+          kind: button.dataset.debugKind || 'action',
+          params: {},
+          presets: [],
+        };
+        if (command === 'run') {
+          if (item.kind === 'flow') runDebugRequest({ kind: 'flow', id: item.id, source: 'gallery' }, item.id);
+          else runDebugRequest({
+            kind: 'action',
+            id: item.id,
+            params: collectDebugParams(item),
+            source: 'gallery',
+          }, item.id);
+        } else if (command === 'preset') {
+          const preset = (item.presets || []).find((p) => p.id === button.dataset.debugPreset);
+          if (preset) runDebugPreset(item, preset);
+        } else if (command === 'url') {
+          copyDebugUrl(item);
+        } else if (command === 'runAlways' || command === 'runOnce') {
+          toggleDebugSchedule(command, item);
+        }
+      }
+      window.__llmingGalleryDebugActionClick = runDebugActionButton;
 
       function runJs() {
         const code = jsInput.value.trim();
@@ -1448,6 +1963,7 @@ _INDEX_HTML = r"""<!doctype html>
 	          if (activeSessionId.value !== sid) return;
 	          activeSessionDetail.value = { error: 'fetch failed' };
 	        }
+	        if (bridgeReady.value) requestDebugActions();
 	      }
 
       // Per-tab polling lifecycle: only the active tab generates traffic.
@@ -1479,7 +1995,10 @@ _INDEX_HTML = r"""<!doctype html>
         else if (tabId === 'modules') {
           if (!modules.value.length) fetchModules();
           if (bridgeReady.value) postToIframe({ type: 'extensions', id: 'mods' });
-        } else if (tabId === 'sessions') fetchSessions();
+        } else if (tabId === 'sessions') {
+          fetchSessions();
+          if (bridgeReady.value) requestDebugActions();
+        }
         else if (tabId === 'console') scrollConsoleBottom();
         applyTabPolling();
       }
@@ -1487,6 +2006,29 @@ _INDEX_HTML = r"""<!doctype html>
       function toggleDebugDrawer() {
         debugDrawer.value = !debugDrawer.value;
         idbPrefSet(IDB_DEBUG_DRAWER, debugDrawer.value);
+      }
+
+      function startDebugResize(ev) {
+        ev.preventDefault();
+        resizingDebug.value = true;
+        try { ev.currentTarget.setPointerCapture(ev.pointerId); } catch (_) {}
+        const startY = ev.clientY;
+        const startHeight = debugHeight.value;
+        const maxHeight = Math.max(260, window.innerHeight - 120);
+        const move = (moveEv) => {
+          const next = Math.max(220, Math.min(maxHeight, startHeight + startY - moveEv.clientY));
+          debugHeight.value = Math.round(next);
+        };
+        const up = () => {
+          resizingDebug.value = false;
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+          window.removeEventListener('pointercancel', up);
+          idbPrefSet(IDB_DEBUG_HEIGHT, debugHeight.value);
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+        window.addEventListener('pointercancel', up);
       }
 
       // Re-evaluate polling whenever the pane is toggled.
@@ -1504,7 +2046,11 @@ _INDEX_HTML = r"""<!doctype html>
         bridgeReady.value = false;
         evalPending.forEach(({ reject }) => reject(new Error('iframe reloaded')));
         evalPending.clear();
+        bridgePending.forEach(({ reject }) => reject(new Error('iframe reloaded')));
+        bridgePending.clear();
         extensions.value = { loaded: [], versions: {}, stage_base: '', stage_lib_version: '' };
+        debugActionState.value = { enabled: false, sessionId: null, currentView: null, actions: [], flows: [], pinned: [], runOnce: [], runAlways: [], recent: [] };
+        setDebugActionMessage('');
       });
 
 	      function disconnectDebug() {
@@ -1520,6 +2066,8 @@ _INDEX_HTML = r"""<!doctype html>
         pending.clear();
         evalPending.forEach(({ reject }) => reject(new Error('disconnected')));
         evalPending.clear();
+        bridgePending.forEach(({ reject }) => reject(new Error('disconnected')));
+        bridgePending.clear();
         debugReady.value = false;
         debugAvailable.value = false;
         debugStatus.value = 'idle';
@@ -1538,6 +2086,8 @@ _INDEX_HTML = r"""<!doctype html>
         activeSessionId.value = null;
         activeSessionDetail.value = null;
         extensions.value = { loaded: [], versions: {}, stage_base: '', stage_lib_version: '' };
+        debugActionState.value = { enabled: false, sessionId: null, currentView: null, actions: [], flows: [], pinned: [], runOnce: [], runAlways: [], recent: [] };
+        setDebugActionMessage('');
       }
 
       function connectDebug() {
@@ -1690,6 +2240,7 @@ _INDEX_HTML = r"""<!doctype html>
       onMounted(async () => {
         try { localStorage.removeItem('gallery-debug-drawer'); } catch (_) {}
         debugDrawer.value = await idbPrefGet(IDB_DEBUG_DRAWER, false) === true;
+        debugHeight.value = Number(await idbPrefGet(IDB_DEBUG_HEIGHT, 340)) || 340;
         await refresh();
       });
 
@@ -1700,7 +2251,7 @@ _INDEX_HTML = r"""<!doctype html>
         pick, stop, reload, popout,
         pageStyleFn,
         // Debug pane
-        debugDrawer, toggleDebugDrawer,
+        debugDrawer, toggleDebugDrawer, debugHeight, resizingDebug, startDebugResize,
         debugAvailable, debugReady, debugStatus, debugError,
 	        debugTabs, activeDebugTab, selectDebugTab,
 	        info, metrics, modules, threads, stdoutText, consoleEl, shortFile,
@@ -1708,9 +2259,15 @@ _INDEX_HTML = r"""<!doctype html>
 	        // Console toggles + JS REPL
 	        consoleMode, jsInput, runJs, jsInputKey, bridgeReady,
 	        extensions,
+	        debugActionState, debugActionItems, groupedDebugActions, actionSearch,
+	        selectedSessionHasActions, selectedSessionActionStatus,
+	        debugActionBusy, debugActionMessage, requestDebugActions,
+	        debugParamValue, setDebugParam, runDebugAction, runDebugFlow,
+	        runDebugPreset, copyDebugUrl, toggleDebugSchedule,
 	        // Sessions
 	        sessions, displaySessions, sessionsAvailable, activeSessionId,
 	        activeSessionDetail, activeSessionDisplay,
+        sessionTabs, activeSessionTab,
         sessionsRefreshedAt,
         openSession,
       };
@@ -1720,6 +2277,12 @@ _INDEX_HTML = r"""<!doctype html>
   const app = createApp(App);
   app.use(Quasar);
   app.mount('#app');
+  document.addEventListener('click', (ev) => {
+    const button = ev.target.closest && ev.target.closest('[data-debug-command]');
+    if (button && window.__llmingGalleryDebugActionClick) {
+      window.__llmingGalleryDebugActionClick(button, ev);
+    }
+  }, true);
 })();
 </script>
 </body>
