@@ -82,6 +82,7 @@ calling `Stage(app)` once and writing `.vue` view files.
 |---|---|
 | `Stage` API + patterns | `docs/content/stage.md` |
 | Asset routes, shared hosting, bundle versioning | `docs/content/assets.md` |
+| Portable / relocatable / single-file static builds | `docs/content/stage.md` |
 | Communication model decision tree | `docs/content/communication-model.md` |
 | Full API reference | `docs/content/api.md` |
 | Lazy-loading catalog | `docs/content/lazy-loading.md` |

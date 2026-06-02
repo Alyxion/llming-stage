@@ -79,6 +79,21 @@ class ShellConfig:
 
     title: str = "llming"
     asset_prefix: str = "/_stage"
+    # Ordered FALLBACK bases tried (after ``asset_prefix``) when a *lazy*
+    # asset fails to load from the primary base. Lets one artifact find its
+    # vendor tree whether it sits far away on a shared host
+    # (``../../../_stage``) or bundled right next to the shell (``.`` /
+    # ``_stage``). Relative entries are self-located against loader.js's own
+    # URL, so document depth never matters. Critical shell libs (Vue/Quasar)
+    # always use ``asset_prefix`` directly — they load before loader.js and
+    # cannot probe.
+    asset_fallbacks: list[str] = field(default_factory=list)
+    # The route this particular HTML document represents. Baked into static
+    # per-route ``index.html`` files by ``Stage.build`` so the SPA router can
+    # subtract it from the served path and learn the deployment base — letting
+    # a relocated/sub-path static bundle still match and mount its views. Empty
+    # on the live server (served at the origin root), where it is not needed.
+    current_route: str = ""
     routes: list[tuple[str, str]] = field(default_factory=list)
     view_modules: dict[str, str | dict[str, str]] = field(default_factory=dict)
     extra_head: str = ""
@@ -109,16 +124,31 @@ class ShellConfig:
 
 def render_shell(config: ShellConfig) -> str:
     """Render the SPA shell HTML document."""
-    prefix = config.asset_prefix.rstrip("/")
-    if config.lib_version_segment:
-        prefix = f"{prefix}/v{config.lib_version_segment}"
+    def _with_segment(p: str) -> str:
+        p = p.rstrip("/")
+        return f"{p}/v{config.lib_version_segment}" if config.lib_version_segment else p
+
+    prefix = _with_segment(config.asset_prefix)
+    fallback_prefixes = [_with_segment(p) for p in config.asset_fallbacks if p.strip()]
     runtime_cache_bust = config.dev_reload or config.debug_enabled
     loader_url = _static_runtime_url(prefix, "loader.js", cache_bust=runtime_cache_bust)
     router_url = _static_runtime_url(prefix, "router.js", cache_bust=runtime_cache_bust)
+    # Lazy assets (and view modules) are registered as paths RELATIVE to the
+    # asset base, so loader.js can re-anchor them via self-location / fallback
+    # without double-prefixing. Strip the primary prefix here.
     view_registrations_js = "\n".join(
-        _view_registration_js(name, entry)
+        _view_registration_js(name, entry, prefix)
         for name, entry in config.view_modules.items()
     )
+    # When fallbacks are configured, hand loader.js the ordered candidate
+    # list; otherwise keep the single-base form (back-compat, identical
+    # output for the default /_stage deployment).
+    bases_js = ""
+    if fallback_prefixes:
+        candidates = json.dumps([prefix, *fallback_prefixes])
+        bases_js = f"\nwindow.__stageBases = {candidates};"
+    if config.current_route:
+        bases_js += f"\nwindow.__stageRoute = {_js_str(config.current_route)};"
     routes_js = "\n".join(
         f"  window.__stageRouter.register({_js_str(p)}, {_js_str(v)});"
         for p, v in config.routes
@@ -141,7 +171,7 @@ def render_shell(config: ShellConfig) -> str:
 <title>{_html_escape(config.title)}</title>
 <link rel="stylesheet" href="{prefix}/fonts/fonts.css">
 <link rel="stylesheet" href="{prefix}/vendor/quasar.prod.css">
-<script>window.__stageBase = {_js_str(prefix)};
+<script>window.__stageBase = {_js_str(prefix)};{bases_js}
 window.__stageLibVersion = {_js_str(config.lib_version)};
 window.__stageDebug = {{
   enabled: {str(bool(config.debug_enabled)).lower()},
@@ -385,13 +415,28 @@ def _static_runtime_url(prefix: str, name: str, *, cache_bust: bool) -> str:
     return f"{url}?v={stamp}"
 
 
-def _view_registration_js(name: str, entry: str | dict[str, str]) -> str:
+def _rebase_under_prefix(url: str, prefix: str) -> str:
+    """Make *url* relative to the asset base by stripping a leading *prefix*.
+
+    A view module served at ``{prefix}/app/home.js`` is registered as
+    ``app/home.js`` so loader.js can re-anchor it (self-location / fallback).
+    URLs on other mounts (absolute or a different prefix) pass through.
+    """
+    if not url or not prefix:
+        return url
+    head = prefix.rstrip("/") + "/"
+    return url[len(head):] if url.startswith(head) else url
+
+
+def _view_registration_js(name: str, entry: str | dict[str, str], prefix: str = "") -> str:
     if isinstance(entry, str):
         js_url = entry
         debug_url = ""
     else:
         js_url = entry.get("js", "")
         debug_url = entry.get("debug", "")
+    js_url = _rebase_under_prefix(js_url, prefix)
+    debug_url = _rebase_under_prefix(debug_url, prefix)
     lines = [f"  window.__stage.register({_js_str(name)}, {{js: {_js_str(js_url)}}});"]
     if debug_url:
         lines.append(

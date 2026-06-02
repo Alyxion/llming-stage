@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import inspect
 import json
 import os
@@ -533,6 +534,7 @@ class Stage:
         title: str = "llming",
         root: str | Path | None = None,
         asset_prefix: str = "/_stage",
+        asset_fallbacks: list[str] | None = None,
         dev: bool = True,
         dev_reload: bool | None = None,
         lib_version: str | None = None,
@@ -555,6 +557,7 @@ class Stage:
             root_path = Path(root).resolve()
         self.root = root_path.parent if root_path.is_file() else root_path
         self.asset_prefix = asset_prefix.rstrip("/")
+        self.asset_fallbacks = list(asset_fallbacks or [])
         self.dev = dev if dev_reload is None else dev_reload
 
         if lib_version is not None and not _LIB_VERSION_RE.fullmatch(lib_version):
@@ -718,7 +721,15 @@ class Stage:
             setattr(state, "llming_stage_session", stage_session)
         return stage_session
 
-    def build(self, out_dir: str | Path) -> Path:
+    def build(
+        self,
+        out_dir: str | Path,
+        *,
+        asset_prefix: str | None = None,
+        asset_fallbacks: list[str] | None = None,
+        inline: bool = False,
+        inline_max_bytes: int | None = None,
+    ) -> Path:
         """Build a static publish directory for apps without Python backends.
 
         Refuses when the Stage is pinned to a bundle different from the
@@ -726,6 +737,23 @@ class Stage:
         the installed package actually owns. To archive an older bundle
         on a shared host, install that older llming-stage version into a
         venv and run ``llming-stage export-assets --out <dir>``.
+
+        Layout knobs (default reproduces the historical ``/_stage`` output):
+
+        * ``asset_prefix`` — where the shell looks for its bundle, *relative
+          to each emitted ``index.html``*. A **relative** value (``"_stage"``,
+          ``"."``) makes the artifact relocatable: it is depth-adjusted per
+          route so a page at ``/reports/`` still finds the bundle, and
+          loader.js self-locates lazy assets from its own URL. An
+          **absolute** value (``"/_stage"``) stays origin-rooted as before.
+        * ``asset_fallbacks`` — extra bases tried when a *lazy* asset 404s
+          from the primary, so one artifact works far (shared host) or near
+          (bundled).
+        * ``inline`` — emit a single self-contained ``index.html`` with every
+          JS/CSS library folded in (critical libs as ``<script>`` / ``<style>``,
+          lazy libs + view modules as ``data-stage-lib`` blocks resolved to
+          blob URLs at load time). ``inline_max_bytes`` caps which lazy files
+          are folded in; larger ones are skipped and noted in an HTML comment.
         """
 
         if self._lib_version_segment:
@@ -739,11 +767,37 @@ class Stage:
         if out.exists():
             shutil.rmtree(out)
         out.mkdir(parents=True)
-        self._build_stage_assets(out / self.asset_prefix.lstrip("/"))
-        html_doc = self._render_shell(dev_reload=False)
+
+        eff_prefix = self.asset_prefix if asset_prefix is None else asset_prefix
+        eff_fallbacks = (
+            self.asset_fallbacks if asset_fallbacks is None else list(asset_fallbacks)
+        )
+        asset_dir = _build_asset_dir_name(eff_prefix)
+        asset_root = out / asset_dir if asset_dir else out
+        self._build_stage_assets(asset_root)
+
+        if inline:
+            # Single-file delivery: base is irrelevant because inlined
+            # payloads resolve with zero network, so render with a neutral
+            # '.' prefix, fold everything in, then drop the now-unused tree.
+            html = self._render_shell(
+                dev_reload=False, asset_prefix=".", asset_fallbacks=[], current_route="/"
+            )
+            html = _inline_assets(html, asset_root, max_bytes=inline_max_bytes)
+            (out / "index.html").write_text(html, encoding="utf-8")
+            shutil.rmtree(asset_root, ignore_errors=True)
+            return out
+
         routes = {v.route for v in self._views} or {"/"}
         for route in routes:
             target = out / "index.html" if route == "/" else out / route.lstrip("/") / "index.html"
+            depth = 0 if route == "/" else len([s for s in route.strip("/").split("/") if s])
+            html_doc = self._render_shell(
+                dev_reload=False,
+                asset_prefix=_depth_adjust_prefix(eff_prefix, depth),
+                asset_fallbacks=[_depth_adjust_prefix(p, depth) for p in eff_fallbacks],
+                current_route=route,
+            )
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(html_doc, encoding="utf-8")
         static_dir = self.root / "static"
@@ -830,17 +884,35 @@ class Stage:
         self.app.router.routes.append(Route("/{path:path}", shell_handler))
         self._shell_routes_mounted = True
 
-    def _render_shell(self, *, dev_reload: bool) -> str:
+    def _render_shell(
+        self,
+        *,
+        dev_reload: bool,
+        asset_prefix: str | None = None,
+        asset_fallbacks: list[str] | None = None,
+        current_route: str = "",
+    ) -> str:
         return render_shell(
             ShellConfig(
                 title=self.title,
-                asset_prefix=self.asset_prefix,
+                asset_prefix=self.asset_prefix if asset_prefix is None else asset_prefix,
+                asset_fallbacks=(
+                    self.asset_fallbacks if asset_fallbacks is None else asset_fallbacks
+                ),
+                current_route=current_route,
                 routes=[(v.route, v.name) for v in self._views],
+                # Register view modules as paths RELATIVE to the asset base
+                # (strip the canonical prefix the route was built with), so the
+                # shell resolves them via self-location / fallback like every
+                # other lazy asset — independent of the render-time prefix.
                 view_modules={
                     v.name: (
-                        {"js": v.module_url, "debug": v.debug_module_url}
+                        {
+                            "js": self._rebase_module_url(v.module_url),
+                            "debug": self._rebase_module_url(v.debug_module_url),
+                        }
                         if v.debug_module_url
-                        else v.module_url
+                        else self._rebase_module_url(v.module_url)
                     )
                     for v in self._views
                 },
@@ -856,6 +928,14 @@ class Stage:
                 ).strip(),
             )
         )
+
+    def _rebase_module_url(self, url: str | None) -> str:
+        """Strip the canonical asset prefix so a view module registers as a
+        base-relative path (``app/home.js``), letting loader.js re-anchor it."""
+        if not url:
+            return url or ""
+        head = self.asset_prefix.rstrip("/") + "/"
+        return url[len(head):] if url.startswith(head) else url
 
     def _insert_before_shell(self, route: Route) -> None:
         routes = self.app.router.routes
@@ -903,6 +983,103 @@ class Stage:
                 _render_view_module(view.name, view.source),
                 encoding="utf-8",
             )
+
+
+def _is_absolute_prefix(prefix: str) -> bool:
+    """True for origin-rooted ('/...') or full-URL ('https://...') prefixes."""
+    return prefix.startswith("/") or "://" in prefix
+
+
+def _build_asset_dir_name(prefix: str) -> str:
+    """Directory under the build root that physically holds the bundle.
+
+    Relative ``../`` segments (a serve-time / shared-host concept) collapse —
+    a static build always writes the bundle inside the output tree. ``"."``
+    means "next to the shell" (returns "").
+    """
+    p = prefix.strip()
+    if _is_absolute_prefix(p):
+        return p.lstrip("/").rstrip("/")
+    parts = [seg for seg in p.split("/") if seg not in ("", ".", "..")]
+    return "/".join(parts)
+
+
+def _depth_adjust_prefix(prefix: str, depth: int) -> str:
+    """Rewrite a RELATIVE prefix so it still resolves from a route ``depth``
+    levels below the build root. Absolute prefixes are origin-rooted and
+    returned unchanged.
+    """
+    if _is_absolute_prefix(prefix):
+        return prefix
+    p = prefix.strip()
+    p = p[2:] if p.startswith("./") else ("" if p == "." else p)
+    combined = ("../" * depth) + p
+    return combined.rstrip("/") or "."
+
+
+def _inline_assets(html: str, asset_root: Path, *, max_bytes: int | None = None) -> str:
+    """Fold a rendered shell into a single self-contained document.
+
+    Critical ``<script src="./…">`` / ``<link href="./….css">`` become inline
+    ``<script>`` / ``<style>``; every lazy vendor lib and view module becomes a
+    ``<script type="text/plain" data-stage-lib="…">`` block that loader.js
+    resolves to a blob URL on demand. Files over ``max_bytes`` are skipped and
+    recorded in an HTML comment (no silent truncation).
+    """
+
+    def _read(rel: str) -> str | None:
+        f = asset_root / rel
+        return f.read_text(encoding="utf-8") if f.is_file() else None
+
+    def _script_sub(m: "re.Match[str]") -> str:
+        rel = m.group(1)
+        content = _read(rel)
+        if content is None:
+            return m.group(0)
+        # Escape any literal '</script>' (only ever inside string literals in
+        # minified bundles) so it can't terminate the inline script early.
+        return f"<script>\n{content.replace('</script>', '<\\/script>')}\n</script>"
+
+    def _link_sub(m: "re.Match[str]") -> str:
+        rel = m.group(1)
+        content = _read(rel)
+        if content is None:
+            return m.group(0)
+        return f"<style>\n{content.replace('</style>', '<\\/style>')}\n</style>"
+
+    html = re.sub(
+        r'<script src="\./([^"?]+\.js)(?:\?[^"]*)?"></script>', _script_sub, html
+    )
+    html = re.sub(
+        r'<link rel="stylesheet" href="\./([^"?]+\.css)(?:\?[^"]*)?">', _link_sub, html
+    )
+
+    blocks: list[str] = []
+    skipped: list[tuple[str, int]] = []
+    for sub in ("vendor", "app"):
+        directory = asset_root / sub
+        if not directory.is_dir():
+            continue
+        for f in sorted(directory.rglob("*")):
+            if not f.is_file() or f.suffix not in (".js", ".css", ".mjs"):
+                continue
+            rel = f"{sub}/{f.relative_to(directory).as_posix()}"
+            size = f.stat().st_size
+            if max_bytes is not None and size > max_bytes:
+                skipped.append((rel, size))
+                continue
+            # base64 so the payload can never contain '</script>' and embeds
+            # safely; loader.js decodes it to a Blob URL on demand.
+            payload = base64.b64encode(f.read_bytes()).decode("ascii")
+            blocks.append(
+                f'<script type="text/plain" data-stage-lib="{rel}">{payload}</script>'
+            )
+    tail = "\n".join(blocks)
+    if skipped:
+        tail += "".join(
+            f"\n<!-- inline-skipped {rel} ({size} bytes) -->" for rel, size in skipped
+        )
+    return html.replace("</body>", f"{tail}\n</body>", 1)
 
 
 def _render_view_module(name: str, source: Path | Callable[[], Any]) -> str:

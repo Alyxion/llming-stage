@@ -363,3 +363,55 @@ llming-stage build . --out dist
 
 Use the FastAPI form when the app needs backend routes, auth,
 websockets, or llming-com command handlers.
+
+## Portable & single-file builds
+
+`Stage.build()` normally emits an origin-rooted bundle (assets under
+`/_stage/...`) — ideal when the app owns the domain root. Three options make
+the same build relocatable or fully self-contained.
+
+### Relative, relocatable bundle
+
+```python
+stage.build("dist", asset_prefix="_stage")
+```
+
+A **relative** `asset_prefix` makes the output drop-in portable: serve it from
+the domain root, a sub-path such as `/app/`, or a CDN prefix and it still finds
+its libraries and mounts its views. Three things cooperate to make this work
+with no rebuild:
+
+- the shell self-locates its asset base from the loader script's own URL;
+- each per-route `index.html` is depth-adjusted, so `/reports/summary/` loads
+  its libraries from `../../_stage`;
+- the SPA router subtracts the route the page was built for to learn the
+  deployment base, so client navigation keeps matching wherever the bundle
+  lands.
+
+### Fallback bases (far or near)
+
+```python
+stage.build("dist", asset_prefix="_stage", asset_fallbacks=["../shared/_stage"])
+```
+
+Lazy libraries try the primary base first, then each fallback in order — so one
+artifact works whether the vendor tree is bundled right next to the shell or
+shared elsewhere. Critical libraries (Vue, Quasar) always load from the primary
+base.
+
+### Single-file delivery
+
+```python
+stage.build("dist", inline=True)                            # one self-contained file
+stage.build("dist", inline=True, inline_max_bytes=300_000)  # skip very large libs
+```
+
+Produces a single `index.html` with everything folded in: critical libraries as
+inline `<script>` / `<style>`, lazy libraries and view modules as base64 blocks
+the loader resolves to in-memory URLs on first use. Nothing is fetched over the
+network. `inline_max_bytes` caps which lazy files are inlined; anything larger
+is left out and recorded in an HTML comment.
+
+> A hard refresh on a client-only route that has no built `index.html` needs the
+> host to fall back to `index.html` — standard for static SPA hosting. Every
+> *registered* route gets its own `index.html`, so those survive a refresh.

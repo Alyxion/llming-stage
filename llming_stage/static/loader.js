@@ -6,7 +6,60 @@
 (function () {
   if (window.__stage && window.__stage.load) return;
 
-  const base = (window.__stageBase || '/_stage').replace(/\/$/, '');
+  // ---- Asset-base resolution ------------------------------------------
+  // The asset base can be supplied in three ways, in priority order:
+  //   1. window.__stageBases — an ORDERED list of candidate bases. The
+  //      first one that actually serves a probe file wins and is locked
+  //      in for the rest of the page (far/near fallback, e.g.
+  //      ['../../../_stage', '_stage', '.']).
+  //   2. window.__stageBase — a single base (back-compat).
+  //   3. self-location — derived from loader.js's OWN resolved <script>
+  //      URL, so a RELATIVE prefix and any document depth resolve
+  //      correctly (the browser already absolutised loader.js's src).
+  // An explicitly ABSOLUTE base (origin-rooted or full URL) is trusted
+  // verbatim; anything relative is upgraded via self-location.
+  function _isAbsoluteUrl(u) {
+    return typeof u === 'string'
+      && (/^(?:https?:)?\/\//.test(u) || u.charAt(0) === '/');
+  }
+  function _stripSlash(u) { return String(u).replace(/\/+$/, ''); }
+  function _selfLocatedBase() {
+    var s = document.currentScript;
+    if (!s || !s.src) {
+      var all = document.getElementsByTagName('script');
+      for (var i = all.length - 1; i >= 0; i--) {
+        if (/(?:^|\/)loader\.js(?:[?#]|$)/.test(all[i].src)) { s = all[i]; break; }
+      }
+    }
+    if (s && s.src) {
+      try { return _stripSlash(new URL('.', s.src).href); } catch (_) {}
+      return s.src.replace(/\/loader\.js(?:[?#].*)?$/, '');
+    }
+    return null;
+  }
+  function _docResolve(value) {
+    if (value === 'inline') return 'inline';
+    if (_isAbsoluteUrl(value)) return _stripSlash(value);
+    // Relative bases resolve against the DOCUMENT — the build already
+    // depth-adjusts them per route, so '../../_stage' from /reports/ lands
+    // on the right tree wherever the bundle is mounted.
+    try { return _stripSlash(new URL(value, document.baseURI).href); }
+    catch (_) { return _stripSlash(value); }
+  }
+
+  // Ordered candidate list: declared bases first (primary + fallbacks),
+  // then loader.js's OWN location as a safety net so even a hand-relocated
+  // bundle still finds the primary tree.
+  const _declared = (Array.isArray(window.__stageBases) && window.__stageBases.length)
+    ? window.__stageBases
+    : (window.__stageBase ? [window.__stageBase] : []);
+  const _candidates = _declared.map(_docResolve);
+  const _selfBase = _selfLocatedBase();
+  if (_selfBase && _candidates.indexOf(_selfBase) === -1) _candidates.push(_selfBase);
+  if (!_candidates.length) _candidates.push(_selfBase || '/_stage');
+  // `base` is the currently-locked winner (starts as the first candidate);
+  // a failed relative load advances it to the next candidate that works.
+  let base = _candidates[0];
 
   // Registry of loadable components. Each entry is either:
   //   - { js: 'path/to/file.js' }                    single script
@@ -51,38 +104,93 @@
   let socketPromise = null;
   let socket = null;
 
-  function resolveUrl(rel) {
-    // Absolute URLs and paths rooted at '/' are passed through untouched.
-    // Only relative paths are resolved against the stage base — so that
-    // app code can register view modules served from arbitrary mounts
-    // (e.g. '/app-static/home.js') without fighting the prefix.
-    if (/^(https?:)?\/\//.test(rel) || rel.startsWith('/')) return rel;
-    return base + '/' + rel;
+  // Cache of blob URLs minted from inlined `<script data-stage-lib="…">`
+  // payloads, so single-file delivery resolves every lib with zero network.
+  const _inlineUrls = new Map();
+  function _inlineUrl(rel) {
+    if (_inlineUrls.has(rel)) return _inlineUrls.get(rel);
+    let url = null;
+    const el = document.querySelector('[data-stage-lib="' + rel.replace(/"/g, '\\"') + '"]');
+    if (el) {
+      const type = /\.css(?:[?#]|$)/.test(rel) ? 'text/css' : 'text/javascript';
+      // Payload is base64 (its alphabet can never contain '</script>', so it
+      // embeds safely in a text/plain block). Decode to bytes for a Blob URL.
+      const bin = atob((el.textContent || '').trim());
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      url = URL.createObjectURL(new Blob([bytes], { type: type }));
+    }
+    _inlineUrls.set(rel, url);
+    return url;
+  }
+
+  function resolveUrl(rel, baseOverride) {
+    // 1. Inlined payload (single-file delivery) wins — never hits the network.
+    const inlined = _inlineUrl(rel);
+    if (inlined) return inlined;
+    // 2. Absolute URLs and '/'-rooted paths pass through untouched, so app
+    //    code can register modules on arbitrary mounts (e.g. '/app/home.js').
+    if (_isAbsoluteUrl(rel)) return rel;
+    // 3. Relative → resolve against the (possibly fallback-advanced) base.
+    return (baseOverride || base) + '/' + rel;
+  }
+
+  // Try each candidate base in order for a RELATIVE path, locking the first
+  // that loads into `base` for the rest of the page. Inlined and absolute
+  // paths resolve in one shot. Used by the tag-based loaders below.
+  function _tagLoader(rel, makeEl) {
+    return new Promise((resolve, reject) => {
+      if (_inlineUrl(rel) || _isAbsoluteUrl(rel)) {
+        const el = makeEl(resolveUrl(rel));
+        el.onload = () => resolve();
+        el.onerror = () => reject(new Error('failed to load ' + rel));
+        document.head.appendChild(el);
+        return;
+      }
+      let i = 0;
+      const tryNext = () => {
+        if (i >= _candidates.length) {
+          reject(new Error('failed to load ' + rel + ' from any base'));
+          return;
+        }
+        const cand = _candidates[i++];
+        const el = makeEl(resolveUrl(rel, cand));
+        el.onload = () => { base = cand; resolve(); };
+        el.onerror = () => { el.remove(); tryNext(); };
+        document.head.appendChild(el);
+      };
+      tryNext();
+    });
   }
 
   function loadScript(rel) {
-    return new Promise((resolve, reject) => {
+    return _tagLoader(rel, (src) => {
       const s = document.createElement('script');
-      s.src = resolveUrl(rel);
+      s.src = src;
       s.async = false;
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error('failed to load script ' + rel));
-      document.head.appendChild(s);
+      return s;
     });
   }
 
   function loadModule(rel) {
-    return import(resolveUrl(rel));
+    if (_inlineUrl(rel) || _isAbsoluteUrl(rel)) return import(resolveUrl(rel));
+    let i = 0;
+    const tryNext = () => {
+      const cand = _candidates[i++];
+      return import(resolveUrl(rel, cand)).then(
+        (m) => { base = cand; return m; },
+        (err) => (i < _candidates.length ? tryNext() : Promise.reject(err)),
+      );
+    };
+    return tryNext();
   }
 
   function loadStylesheet(rel) {
-    return new Promise((resolve, reject) => {
+    return _tagLoader(rel, (href) => {
       const l = document.createElement('link');
       l.rel = 'stylesheet';
-      l.href = resolveUrl(rel);
-      l.onload = () => resolve();
-      l.onerror = () => reject(new Error('failed to load stylesheet ' + rel));
-      document.head.appendChild(l);
+      l.href = href;
+      return l;
     });
   }
 
@@ -362,7 +470,7 @@
   installDebugBridge();
 
   window.__stage = Object.freeze({
-    base,
+    get base() { return base; },
     load,
     isLoaded,
     register,

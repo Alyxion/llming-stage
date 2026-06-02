@@ -234,3 +234,24 @@ current API.
 - The `lib_version` string is regex-validated (`\d{4}-\d{2}(-\d+)?`) at
   `Stage.__init__`. Anything else — semver, slashes, traversal —
   raises `ValueError` before any URL is built.
+
+## Where the shell looks for assets
+
+The default `asset_prefix` (`/_stage`) is **origin-rooted**: every asset URL
+starts at the domain root, which is correct when the app owns that root. The
+shell can also find its assets in other layouts:
+
+- **Relative prefix** (`asset_prefix="_stage"`, `"."`) — resolved against the
+  document, with the loader self-locating its base from its own script URL.
+  This is what makes a static build relocatable; see
+  [Portable & single-file builds](stage.md#portable-single-file-builds).
+- **Fallback bases** (`asset_fallbacks=[...]`) — extra bases the loader tries,
+  in order, when a *lazy* library is missing from the primary base. One
+  artifact then works whether the vendor tree is bundled next to the shell or
+  shared elsewhere. Critical libraries (Vue, Quasar) always use the primary
+  base, because they load before the loader can probe.
+- **Inlined** (`build(inline=True)`) — no base at all; libraries are folded
+  into the document and resolved to in-memory URLs.
+
+These are deployment-layout knobs and are independent of `lib_version` bundle
+pinning above — you can combine a relative prefix with a pinned bundle.
