@@ -111,4 +111,4 @@ stage.add_view("/", "home.vue")
 
 ---
 
-MIT licensed. Bundled third-party files are listed in [THIRD_PARTY.md](https://github.com/Alyxion/llming-stage/blob/main/THIRD_PARTY.md); no AGPL/GPL/LGPL is permitted.
+MIT licensed.
