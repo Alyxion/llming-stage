@@ -314,6 +314,8 @@ def test_basic_components(sample_server: str, page: Page) -> None:
         ("plotly_advanced", "Advanced Plotly"),
         ("extension_workbench", "Extension workbench"),
         ("basic_components", "Basic components"),
+        ("data_bundle", "Offline data bundle (zip)"),
+        ("media_gallery", "Media bundle gallery"),
     ],
     indirect=["sample_server"],
 )

@@ -27,6 +27,8 @@ from .shell import (
     ShellConfig,
     export_package_assets,
     mount_assets,
+    mount_bundle_builder,
+    mount_bundles,
     render_shell,
 )
 
@@ -604,6 +606,46 @@ class Stage:
         """
 
         self._register_view(route, source, name=name)
+        return self
+
+    def mount_bundles(
+        self,
+        directory: str | Path = "data",
+        *,
+        prefix: str = "/bundles",
+    ) -> "Stage":
+        """Serve a data-bundle directory with ETag-revalidated routes.
+
+        ``directory`` is resolved relative to the Stage root (like view
+        sources), so a sample only needs ``stage.mount_bundles("data")``.
+        Files are served by :func:`llming_stage.mount_bundles` — whole
+        ``.zip`` / ``.json`` / ``.bin`` blobs the client downloads once,
+        caches by content hash, and reads locally for offline use.
+        """
+        resolved = self._resolve_source(directory)
+        route = _normalize_route(prefix)
+        mount_bundles(self.app, resolved, prefix=route)
+        return self
+
+    def serve_bundle(
+        self,
+        name: str,
+        source: str | Path,
+        *,
+        prefix: str = "/bundles",
+    ) -> "Stage":
+        """Zip *source* on demand and serve it at ``{prefix}/{name}.zip``.
+
+        The directory is re-zipped automatically whenever its contents
+        change (mtime/size signature) — no build step, no watcher. The
+        client downloads ``{name}.zip`` once, caches it by content hash, and
+        unzips it in the browser. ``source`` is resolved relative to the
+        Stage root, so a sample only needs
+        ``stage.serve_bundle("media", "assets")``.
+        """
+        resolved = self._resolve_source(source)
+        url = f"{prefix.rstrip('/')}/{name}.zip"
+        mount_bundle_builder(self.app, resolved, url=url)
         return self
 
     def view(

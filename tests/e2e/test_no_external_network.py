@@ -22,6 +22,8 @@ SAMPLES_TO_VISIT = [
     "plotly_advanced",      # plotly-full (4.8 MB)
     "extension_workbench",  # all optional lazy extensions
     "basic_components",     # bundled Tailwind + core UI components
+    "data_bundle",          # offline zip bundle fetched + unzipped in-browser
+    "media_gallery",        # images/video/audio from one bundle (blob + service worker)
 ]
 
 

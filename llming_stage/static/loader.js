@@ -68,6 +68,8 @@
   //   - { module: 'path/to/file.mjs' }               ES module
   //   - { bundle: [entry, entry, ...] }              multiple assets, loaded in order
   const registry = {
+    fflate:       { js: 'vendor/fflate.min.js' },
+    bundles:      { js: 'bundles.js' },
     katex:        { js: 'vendor/katex.min.js',       css: 'vendor/katex.min.css' },
     mermaid:      { js: 'vendor/mermaid.min.js' },
     marked:       { js: 'vendor/marked.umd.js' },

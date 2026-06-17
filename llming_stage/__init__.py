@@ -18,16 +18,20 @@ from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
 from .debug import is_debug_enabled, mount_debug
 from .dev_reload import DevReloadConfig, dev_reload_head, mount_dev_reload
+from .bundle_server import BundleBuilder
 from .shell import (
     ShellConfig,
     export_package_assets,
     mount_assets,
+    mount_bundle_builder,
+    mount_bundles,
     mount_shell,
     render_shell,
 )
 from .stage import Stage, StageSession, VueResponse
 
 __all__ = [
+    "BundleBuilder",
     "DevReloadConfig",
     "LIB_VERSION",
     "Stage",
@@ -38,6 +42,8 @@ __all__ = [
     "export_package_assets",
     "is_debug_enabled",
     "mount_assets",
+    "mount_bundle_builder",
+    "mount_bundles",
     "mount_debug",
     "mount_dev_reload",
     "mount_shell",
@@ -53,4 +59,4 @@ except PackageNotFoundError:
 # llming_stage/{vendor, fonts, lang, assets}/ is swapped. Format YYYY-MM
 # (with optional -NN suffix for in-month refreshes). Keep in sync with
 # the same stamp at the top of THIRD_PARTY.md — a test enforces this.
-LIB_VERSION = "2026-05"
+LIB_VERSION = "2026-06"

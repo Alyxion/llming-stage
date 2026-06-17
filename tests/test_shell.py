@@ -22,6 +22,29 @@ def test_router_js_is_served(client: TestClient) -> None:
     assert r.headers["cache-control"] == "no-store"
 
 
+def test_bundles_js_is_served(client: TestClient) -> None:
+    r = client.get("/_stage/bundles.js")
+    assert r.status_code == 200
+    assert "window.__stageBundles" in r.text
+    assert r.headers["content-type"].startswith("application/javascript")
+    assert r.headers["cache-control"] == "no-store"
+
+
+def test_fflate_vendored_for_browser_unzip(client: TestClient) -> None:
+    r = client.get("/_stage/vendor/fflate.min.js")
+    assert r.status_code == 200
+    assert "unzipSync" in r.text
+
+
+def test_bundle_service_worker_served_with_root_scope(client: TestClient) -> None:
+    r = client.get("/_stage/bundle-sw.js")
+    assert r.status_code == 200
+    assert "__stage_bundle__" in r.text
+    # Must be allowed to claim root scope despite living under the asset prefix.
+    assert r.headers["service-worker-allowed"] == "/"
+    assert r.headers["content-type"].startswith("application/javascript")
+
+
 def test_vue_is_served(client: TestClient) -> None:
     r = client.get("/_stage/vendor/vue.global.prod.js")
     assert r.status_code == 200

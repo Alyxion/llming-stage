@@ -20,6 +20,12 @@ from starlette.responses import HTMLResponse, Response
 from starlette.routing import Route
 
 from .asset_server import make_dir_handler
+from .bundle_server import (
+    BUNDLE_EXTENSIONS,
+    BundleBuilder,
+    make_bundle_handler,
+    make_builder_handler,
+)
 from .dev_reload import dev_reload_head
 from .zip_server import ZipArchive, make_zip_handler
 
@@ -473,8 +479,25 @@ def _asset_routes(
         request.path_params["path"] = "router.js"
         return await handler(request)
 
+    async def bundles_js(request: Request) -> Response:
+        handler = make_dir_handler(static_dir, cache_max_age=0)
+        request.path_params["path"] = "bundles.js"
+        return await handler(request)
+
+    async def bundle_sw_js(request: Request) -> Response:
+        handler = make_dir_handler(static_dir, cache_max_age=0)
+        request.path_params["path"] = "bundle-sw.js"
+        response = await handler(request)
+        # Allow the worker to claim root scope even though it is served from
+        # the asset prefix, so it can intercept the `/__stage_bundle__/` mount.
+        if response.status_code == 200:
+            response.headers["Service-Worker-Allowed"] = "/"
+        return response
+
     routes.append(Route(f"{prefix}/loader.js", loader_js))
     routes.append(Route(f"{prefix}/router.js", router_js))
+    routes.append(Route(f"{prefix}/bundles.js", bundles_js))
+    routes.append(Route(f"{prefix}/bundle-sw.js", bundle_sw_js))
 
     if vendor_dir.exists():
         routes.append(
@@ -562,6 +585,88 @@ def mount_assets(
         app.router.routes.append(route)
     if state is not None:
         setattr(state, flag, True)
+
+
+def mount_bundles(
+    app: Any,
+    directory: str | Path,
+    *,
+    prefix: str = "/bundles",
+    allowed_extensions: frozenset[str] = BUNDLE_EXTENSIONS,
+) -> None:
+    """Mount an ETag-revalidated data-bundle route serving *directory*.
+
+    Data bundles (``.zip`` / ``.json`` / ``.bin``) are whole files the
+    client downloads once and reads locally — the basis for offline apps.
+    Each file is served with its content hash as the ``ETag`` and
+    ``Cache-Control: no-cache``, so a cached client revalidates with
+    ``If-None-Match`` and gets a ``304`` until the file is re-prepared. See
+    :mod:`llming_stage.bundle_server` for the full rationale.
+
+    Idempotent per app + prefix. ``directory`` must exist at mount time.
+    """
+    root = Path(directory).resolve()
+    if not root.is_dir():
+        raise FileNotFoundError(f"bundle directory not found: {root}")
+    prefix = prefix.rstrip("/")
+    state = getattr(app, "state", None)
+    flag = f"llming_stage_bundles_mounted_{prefix}"
+    if state is not None and getattr(state, flag, False):
+        return
+    handler = make_bundle_handler(root, allowed_extensions=allowed_extensions)
+    route = Route(f"{prefix}/{{path:path}}", handler, methods=["GET", "HEAD"])
+    # Insert before any catch-all shell route so the bundle path wins.
+    routes = app.router.routes
+    for index, existing in enumerate(routes):
+        if getattr(existing, "path", None) == "/{path:path}":
+            routes.insert(index, route)
+            break
+    else:
+        routes.append(route)
+    if state is not None:
+        setattr(state, flag, True)
+
+
+def _insert_before_catch_all(app: Any, route: Route) -> None:
+    """Insert an EXACT route ahead of any catch-all/param route.
+
+    Starlette matches in declaration order, so an exact path like
+    ``/bundles/live.zip`` must precede both the SPA shell catch-all
+    (``/{path:path}``) *and* any directory mount (``/bundles/{path:path}``)
+    that would otherwise shadow it. Insert before the first route whose path
+    ends in a ``{...:path}`` segment.
+    """
+    routes = app.router.routes
+    for index, existing in enumerate(routes):
+        path = getattr(existing, "path", "") or ""
+        if path.endswith(":path}"):
+            routes.insert(index, route)
+            return
+    routes.append(route)
+
+
+def mount_bundle_builder(
+    app: Any,
+    source: str | Path,
+    *,
+    url: str,
+    compression: int = zipfile.ZIP_DEFLATED,
+) -> BundleBuilder:
+    """Zip *source* on demand and serve it at *url*, rebuilding when it changes.
+
+    The directory is re-zipped only when its contents change (detected by a
+    per-file mtime/size signature), so the served bundle is always current
+    with no manual build step and no background watcher — editing a file
+    yields a new ETag on the next request. Served with the same
+    ETag/``If-None-Match`` revalidation as :func:`mount_bundles`.
+
+    Returns the :class:`~llming_stage.bundle_server.BundleBuilder` so callers
+    can pre-warm it (``builder.build()``) at startup if desired.
+    """
+    builder = BundleBuilder(Path(source).resolve(strict=True), compression=compression)
+    handler = make_builder_handler(builder)
+    _insert_before_catch_all(app, Route(url, handler, methods=["GET", "HEAD"]))
+    return builder
 
 
 _ASSET_CATEGORIES = ("vendor", "fonts", "lang", "icons", "emoji", "tabler", "llming-com")

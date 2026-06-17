@@ -1,6 +1,6 @@
 # Third-Party Resources
 
-**Bundle version:** 2026-05
+**Bundle version:** 2026-06
 
 *(Same string as `llming_stage.LIB_VERSION`. Bump both whenever any vendored
 file or asset listed below is added, removed, or upgraded. A test in
@@ -33,6 +33,7 @@ No AGPL, GPL, or LGPL resource is ever permitted in this repository.
 | xterm.js webgl addon | 0.19.0 | MIT | https://registry.npmjs.org/@xterm/addon-webgl/-/addon-webgl-0.19.0.tgz (sha1 `02533c3f7c0af3ac9a44bbb095cbd47d48e90c25`) | GPU-accelerated terminal renderer. |
 | Drawflow | 0.0.60 | MIT | https://registry.npmjs.org/drawflow/-/drawflow-0.0.60.tgz (sha1 `313eadb43190a04ebba16d2cb49d1c9516030a15`) | Visual node-graph editor. |
 | CodeMirror 5 | 5.65.21 | MIT | https://registry.npmjs.org/codemirror/-/codemirror-5.65.21.tgz (sha1 `cacf320606c5450ad3b3da34bb9c666afec21068`) | In-browser code editor. Vendored files: `codemirror.{js,css}`, `codemirror-mode-javascript.js`, `codemirror-addon-matchbrackets.js`, `codemirror-addon-closebrackets.js`. |
+| fflate | 0.8.3 | MIT | https://registry.npmjs.org/fflate/-/fflate-0.8.3.tgz (sha1 `bc27d8eb30343d4d512abb03480202ce65d825fc`) | Zip/deflate in pure JS (UMD `umd/index.js`, global `fflate`). Used by `bundles.js` to unzip downloaded data bundles in the browser. |
 
 ## Fonts (`llming_stage/fonts/`)
 
